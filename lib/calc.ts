@@ -1,20 +1,19 @@
 /**
  * 광고 손익 계산 공식 (단일 진실 — UI 에서 직접 계산 금지, 본 모듈만 사용).
  *
- * 사장님 정의 (2026-05-23 재정의):
- *   순매출(netRevenue)       = 결제완료 - 환불 (한 정의로 통일, 화면 전체 동일 값)
- *   VAT                      = 순매출 / 11                    (VAT 포함가 기준)
- *   부가세 제외 순매출(exVat) = 순매출 - VAT
- *   PG수수료(pgFee)          = 부가세 제외 순매출 * 3.52%      (계약 PG 수수료율)
- *   리포트 생성원가          = 결제완료 건수 * 250             (건당 단가)
- *   리포트원가율             = 리포트 생성원가 / 부가세 제외 순매출
- *   실질 ROAS                = 부가세 제외 순매출 / 광고비 * 100
- *   손익분기 ROAS (BEP)      = 1 / (1 - PG수수료율 - 리포트원가율) * 100
- *   공헌이익                 = 부가세 제외 순매출 - PG - 리포트원가 - 광고비
- *   마진                     = 공헌이익 / 순매출 * 100
+ * 사장님 정의 (2026-05-23 최종):
+ *   결제매출(netRevenue)     = PortOne 콘솔 순거래액 (VAT 포함, 단일 진실)
+ *   VAT                      = 결제매출 / 11
+ *   VAT 제외 매출(exVat)     = 결제매출 - VAT
+ *   PG수수료(pgFee)          = VAT 제외 매출 × 3.52%
+ *   리포트 생성원가          = 결제완료 건수 × 250
+ *   ROAS                     = 결제매출(VAT 포함) / 광고비 × 100
+ *   손익분기 ROAS (BEP)      = 118% (고정)
+ *   공헌이익                 = 결제매출 - VAT - PG - 리포트원가 - 광고비
+ *   마진                     = 공헌이익 / 결제매출 × 100
  *
- * BEP 와 실질 ROAS 모두 "부가세 제외 매출" 기준이라 분모가 동일.
- * 실질 ROAS > BEP 이면 광고 증액 가능.
+ * ROAS 는 결제매출(VAT 포함) 기준으로 단일화. BEP 118% 는 약 115~120% 범위에서
+ * 사장님이 합의한 운영 기준값. ROAS > 118% 이면 '증액 가능'.
  */
 
 export type CalcInput = {
@@ -26,23 +25,24 @@ export type CalcInput = {
 };
 
 export type CalcResult = {
-  netRevenue: number;        // VAT 포함 순매출
+  netRevenue: number;        // VAT 포함 결제매출 (PortOne 순거래액)
   vat: number;
-  revenueExVat: number;      // 부가세 제외 순매출
-  pgFee: number;             // 부가세 제외 매출 × PG율
+  revenueExVat: number;      // VAT 제외 매출
+  pgFee: number;             // VAT 제외 매출 × PG율
   reportCost: number;        // 결제 건수 × 단가
-  reportCostRate: number;    // 리포트원가 / 부가세 제외 매출
+  reportCostRate: number;    // 리포트원가 / VAT 제외 매출 (참고용)
   adSpend: number;
   contributionProfit: number;
-  contributionMargin: number | null;  // 공헌이익 / 순매출 (VAT 포함)
-  realRoas: number | null;            // 부가세 제외 매출 / 광고비
-  breakEvenRoas: number | null;       // 1 / (1 - pgRate - reportRate)
+  contributionMargin: number | null;  // 공헌이익 / 결제매출
+  roas: number | null;                // 결제매출(VAT 포함) / 광고비 × 100
+  breakEvenRoas: number;              // BEP 고정 118%
   status: "흑자" | "손익분기" | "적자";
   adAdvice: "증액 가능" | "광고비 주의" | "광고비 없음";
 };
 
 export const DEFAULT_PG_FEE_RATE = 0.0352;
 export const DEFAULT_REPORT_COST_PER_UNIT = 250;
+export const BREAK_EVEN_ROAS = 118;       // 손익분기 ROAS (고정, % 단위)
 
 export function calculateVat(netRevenue: number): number {
   return netRevenue / 11;
@@ -77,22 +77,13 @@ export function calculateContributionMargin(
   return (contributionProfit / netRevenue) * 100;
 }
 
-export function calculateRealRoas(revenueExVat: number, adSpend: number): number | null {
-  if (adSpend <= 0) return null;
-  return (revenueExVat / adSpend) * 100;
-}
-
 /**
- * BEP = 1 / (1 - PG율 - 리포트원가율)
- * 실질 ROAS 와 분모가 같아서 직접 비교 가능.
+ * ROAS = 결제매출(VAT 포함) / 광고비 × 100.
+ * BEP 118% 와 분모가 다르지만 같은 단위(% of 결제매출)라 직접 비교 가능.
  */
-export function calculateBreakEvenRoas(
-  pgFeeRate: number,
-  reportCostRate: number,
-): number | null {
-  const denom = 1 - pgFeeRate - reportCostRate;
-  if (denom <= 0) return null;
-  return (1 / denom) * 100;
+export function calculateRoas(netRevenue: number, adSpend: number): number | null {
+  if (adSpend <= 0) return null;
+  return (netRevenue / adSpend) * 100;
 }
 
 export function calc(input: CalcInput): CalcResult {
@@ -106,8 +97,8 @@ export function calc(input: CalcInput): CalcResult {
 
   const contributionProfit = calculateContributionProfit(revenueExVat, pgFee, reportCost, adSpend);
   const contributionMargin = calculateContributionMargin(contributionProfit, netRevenue);
-  const realRoas = calculateRealRoas(revenueExVat, adSpend);
-  const breakEvenRoas = calculateBreakEvenRoas(input.pgFeeRate, reportCostRate);
+  const roas = calculateRoas(netRevenue, adSpend);
+  const breakEvenRoas = BREAK_EVEN_ROAS;
 
   // 상태 판단 — netRevenue 의 0.5% 이내는 손익분기로 간주.
   const tolerance = Math.max(1000, netRevenue * 0.005);
@@ -118,7 +109,7 @@ export function calc(input: CalcInput): CalcResult {
 
   let adAdvice: CalcResult["adAdvice"];
   if (adSpend <= 0) adAdvice = "광고비 없음";
-  else if (realRoas !== null && breakEvenRoas !== null && realRoas > breakEvenRoas) {
+  else if (roas !== null && roas > breakEvenRoas) {
     adAdvice = "증액 가능";
   } else {
     adAdvice = "광고비 주의";
@@ -134,7 +125,7 @@ export function calc(input: CalcInput): CalcResult {
     adSpend,
     contributionProfit,
     contributionMargin,
-    realRoas,
+    roas,
     breakEvenRoas,
     status,
     adAdvice,
