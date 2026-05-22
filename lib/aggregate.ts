@@ -95,14 +95,16 @@ export function aggregate(
   payments: PortonePayment[],
   range: { from: string; until: string },
 ): DashboardSummary {
-  // PortOne 의 status 별 처리:
-  //  - PAID: 정상 결제. amount.cancelled = 0 (보통).
-  //  - PARTIAL_CANCELLED: 부분 환불. amount.total = 원, amount.cancelled = 환불액.
-  //  - CANCELLED: 전액 환불. amount.cancelled = amount.total.
-  //  - 그 외 (FAILED, READY, PAY_PENDING, VIRTUAL_ACCOUNT_ISSUED): 거래액 합산 제외.
+  // PortOne 콘솔 정의 (정밀 매칭):
+  //  - 거래액   = PAID + PARTIAL_CANCELLED 의 amount.total
+  //               (CANCELLED 전액환불은 "거래 없었던 것" 으로 보고 제외)
+  //  - 거래취소액 = PARTIAL_CANCELLED 의 amount.cancelled
+  //               + CANCELLED 의 amount.cancelled (= 전액환불)
+  //  - 순거래액  = 거래액 - 거래취소액
+  //  - FAILED / READY / PAY_PENDING / VIRTUAL_ACCOUNT_ISSUED 는 모두 제외.
 
-  let gross = 0;        // PortOne "거래액"
-  let cancelled = 0;    // PortOne "거래취소액"
+  let gross = 0;
+  let cancelled = 0;
   let paidCount = 0;
   let cancelCount = 0;
 
@@ -110,37 +112,44 @@ export function aggregate(
   const dailyMap = new Map<string, number>();
   const weeklyMap = new Map<string, number>();
 
-  const INCLUDE_STATUSES = new Set(["PAID", "CANCELLED", "PARTIAL_CANCELLED"]);
+  // 거래액(gross) 및 결제수단/그래프 집계에 포함되는 status.
+  // CANCELLED 는 거래 없었던 것으로 보고 제외 (PortOne 콘솔 동일).
+  const GROSS_STATUSES = new Set(["PAID", "PARTIAL_CANCELLED"]);
+  const CANCEL_STATUSES = new Set(["CANCELLED", "PARTIAL_CANCELLED"]);
 
   for (const raw of payments) {
     const p = raw as AnyPayment;
     const status = (p.status || "").toUpperCase();
-    if (!INCLUDE_STATUSES.has(status)) continue;
+    if (!GROSS_STATUSES.has(status) && !CANCEL_STATUSES.has(status)) continue;
 
     const amount = p.amount || {};
     const total = Number(amount.total) || 0;
     const cancelledAmt = Number(amount.cancelled) || 0;
-    const net = total - cancelledAmt;
 
-    gross += total;
-    cancelled += cancelledAmt;
-    if (status === "PAID" || status === "PARTIAL_CANCELLED") paidCount += 1;
-    if (status === "CANCELLED" || status === "PARTIAL_CANCELLED") cancelCount += 1;
+    if (GROSS_STATUSES.has(status)) {
+      gross += total;
+      if (status === "PAID" || status === "PARTIAL_CANCELLED") paidCount += 1;
 
-    const label = methodLabel(p);
-    const c = channelMap.get(label) || { gross: 0, net: 0, count: 0 };
-    c.gross += total;
-    c.net += net;
-    c.count += 1;
-    channelMap.set(label, c);
+      const net = total - cancelledAmt;
+      const label = methodLabel(p);
+      const c = channelMap.get(label) || { gross: 0, net: 0, count: 0 };
+      c.gross += total;
+      c.net += net;
+      c.count += 1;
+      channelMap.set(label, c);
 
-    const at = parseIso(p.paidAt) || parseIso(p.requestedAt);
-    if (at) {
-      const dkey = ymd(at);
-      // 차트는 net 기준 (PortOne 콘솔의 거래액 그래프와 동일).
-      dailyMap.set(dkey, (dailyMap.get(dkey) || 0) + net);
-      const wkey = weekStart(at);
-      weeklyMap.set(wkey, (weeklyMap.get(wkey) || 0) + net);
+      const at = parseIso(p.paidAt) || parseIso(p.requestedAt);
+      if (at) {
+        const dkey = ymd(at);
+        dailyMap.set(dkey, (dailyMap.get(dkey) || 0) + net);
+        const wkey = weekStart(at);
+        weeklyMap.set(wkey, (weeklyMap.get(wkey) || 0) + net);
+      }
+    }
+
+    if (CANCEL_STATUSES.has(status)) {
+      cancelled += cancelledAmt;
+      cancelCount += 1;
     }
   }
 
