@@ -112,44 +112,49 @@ export function aggregate(
   const dailyMap = new Map<string, number>();
   const weeklyMap = new Map<string, number>();
 
-  // 거래액(gross) 및 결제수단/그래프 집계에 포함되는 status.
-  // CANCELLED 는 거래 없었던 것으로 보고 제외 (PortOne 콘솔 동일).
-  const GROSS_STATUSES = new Set(["PAID", "PARTIAL_CANCELLED"]);
-  const CANCEL_STATUSES = new Set(["CANCELLED", "PARTIAL_CANCELLED"]);
+  // PortOne 콘솔 정의 (OpenAPI PaymentAmount 스키마 기준):
+  //   "거래액"   = amount.paid + amount.cancelled   (= total - discount)
+  //               즉 PG 가 실제로 처리한 금액 (할인 제외, 환불 부분 포함).
+  //   "거래취소액" = amount.cancelled
+  //   "순거래액"  = 거래액 - 거래취소액 = amount.paid
+  //
+  // 모든 status (PAID / PARTIAL_CANCELLED / CANCELLED) 가 위 정의에 기여한다:
+  //   PAID:               paid = total - discount,         cancelled = 0
+  //   PARTIAL_CANCELLED:  paid = total - discount - canc,  cancelled = canc
+  //   CANCELLED:          paid = 0,                        cancelled = total - discount
+  //
+  // 따라서 status 별 분기 없이 amount 필드만 일관되게 합산하면 됨.
+  const INCLUDE_STATUSES = new Set(["PAID", "PARTIAL_CANCELLED", "CANCELLED"]);
 
   for (const raw of payments) {
     const p = raw as AnyPayment;
     const status = (p.status || "").toUpperCase();
-    if (!GROSS_STATUSES.has(status) && !CANCEL_STATUSES.has(status)) continue;
+    if (!INCLUDE_STATUSES.has(status)) continue;
 
     const amount = p.amount || {};
-    const total = Number(amount.total) || 0;
+    const paid = Number(amount.paid) || 0;
     const cancelledAmt = Number(amount.cancelled) || 0;
+    const channelAmount = paid + cancelledAmt;   // 거래액 (할인 제외)
+    const channelNet = paid;                     // 순거래액 = 실제 남은 결제금액
 
-    if (GROSS_STATUSES.has(status)) {
-      gross += total;
-      if (status === "PAID" || status === "PARTIAL_CANCELLED") paidCount += 1;
+    gross += channelAmount;
+    cancelled += cancelledAmt;
+    if (status === "PAID" || status === "PARTIAL_CANCELLED") paidCount += 1;
+    if (status === "CANCELLED" || status === "PARTIAL_CANCELLED") cancelCount += 1;
 
-      const net = total - cancelledAmt;
-      const label = methodLabel(p);
-      const c = channelMap.get(label) || { gross: 0, net: 0, count: 0 };
-      c.gross += total;
-      c.net += net;
-      c.count += 1;
-      channelMap.set(label, c);
+    const label = methodLabel(p);
+    const c = channelMap.get(label) || { gross: 0, net: 0, count: 0 };
+    c.gross += channelAmount;
+    c.net += channelNet;
+    c.count += 1;
+    channelMap.set(label, c);
 
-      const at = parseIso(p.paidAt) || parseIso(p.requestedAt);
-      if (at) {
-        const dkey = ymd(at);
-        dailyMap.set(dkey, (dailyMap.get(dkey) || 0) + net);
-        const wkey = weekStart(at);
-        weeklyMap.set(wkey, (weeklyMap.get(wkey) || 0) + net);
-      }
-    }
-
-    if (CANCEL_STATUSES.has(status)) {
-      cancelled += cancelledAmt;
-      cancelCount += 1;
+    const at = parseIso(p.paidAt) || parseIso(p.requestedAt);
+    if (at) {
+      const dkey = ymd(at);
+      dailyMap.set(dkey, (dailyMap.get(dkey) || 0) + channelNet);
+      const wkey = weekStart(at);
+      weeklyMap.set(wkey, (weeklyMap.get(wkey) || 0) + channelNet);
     }
   }
 
