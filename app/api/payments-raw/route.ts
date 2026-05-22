@@ -48,6 +48,7 @@ export async function GET(req: NextRequest) {
     const headers = [
       "id",
       "status",
+      "channel.type",
       "paidAt",
       "requestedAt",
       "method.type",
@@ -64,14 +65,16 @@ export async function GET(req: NextRequest) {
     for (const p of items as any[]) {
       const m = p.method || {};
       const a = p.amount || {};
+      const ch = p.channel || {};
       const row = [
         p.id,
         p.status,
+        ch.type || "",
         p.paidAt || "",
         p.requestedAt || "",
         m.type || "",
         m.provider || "",
-        p.channel?.pgProvider || "",
+        ch.pgProvider || "",
         p.currency || "",
         a.total ?? "",
         a.discount ?? "",

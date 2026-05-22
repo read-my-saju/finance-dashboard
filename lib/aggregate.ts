@@ -128,6 +128,13 @@ export function aggregate(
     const p = raw as AnyPayment;
     const status = (p.status || "").toUpperCase();
 
+    // 테스트 채널 결제 제외 (PortOne 콘솔의 "테스트 데이터" toggle OFF 와 동일).
+    // SelectedChannel.type === "TEST" 이면 테스트 연동 채널. 콘솔 export 도 제외.
+    // 사장님 PortOne 엑셀 vs 우리 CSV 1:1 diff 결과 50건 / 686,260원 차이가
+    // 모두 이 케이스로 확인됨.
+    const channelType = (p.channel?.type || "").toUpperCase();
+    if (channelType === "TEST") continue;
+
     const amount = p.amount || {};
     const total = Number(amount.total) || 0;
     const cancelledAmt = Number(amount.cancelled) || 0;
