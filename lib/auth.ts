@@ -5,8 +5,10 @@
  *   DASHBOARD_PASSWORD  로그인 비밀번호 (필수)
  *   SESSION_SECRET      쿠키 서명용 (필수)
  *
- * 세션 토큰 = HMAC-SHA256(SESSION_SECRET, "v1:" + expISOdate) 의 16진수.
- * exp 30 일.
+ * 세션 토큰 = `{expUnixMs}.{HMAC-SHA256(SESSION_SECRET, "v1:" + expUnixMs)}`.
+ * 이전 버전은 expiry 를 ISO datetime 으로 썼는데 milliseconds 가 포함한 `.`
+ * 때문에 split(".") 가 토큰을 3 개로 쪼개 모든 검증이 실패하던 버그가 있었음.
+ * 단순한 Unix milliseconds 숫자로 통일해서 안전.
  */
 import { cookies } from "next/headers";
 import crypto from "crypto";
@@ -21,16 +23,21 @@ function secret(): string {
 }
 
 export function buildToken(): string {
-  const exp = new Date(Date.now() + TTL_DAYS * 24 * 3600 * 1000).toISOString();
+  const expMs = Date.now() + TTL_DAYS * 24 * 3600 * 1000;
+  const exp = String(expMs);
   const sig = crypto.createHmac("sha256", secret()).update(`v1:${exp}`).digest("hex");
   return `${exp}.${sig}`;
 }
 
 export function verifyToken(token: string | undefined): boolean {
   if (!token) return false;
-  const [exp, sig] = token.split(".");
+  const idx = token.indexOf(".");
+  if (idx <= 0) return false;
+  const exp = token.slice(0, idx);
+  const sig = token.slice(idx + 1);
   if (!exp || !sig) return false;
-  if (new Date(exp).getTime() < Date.now()) return false;
+  const expMs = Number(exp);
+  if (!Number.isFinite(expMs) || expMs < Date.now()) return false;
   const expected = crypto.createHmac("sha256", secret()).update(`v1:${exp}`).digest("hex");
   try {
     return crypto.timingSafeEqual(Buffer.from(sig, "hex"), Buffer.from(expected, "hex"));
