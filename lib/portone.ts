@@ -99,6 +99,11 @@ export async function fetchAllPaidPayments(opts: {
   const all: PortonePayment[] = [];
   const debug: FetchDebug = { attempts: [], totalItems: 0, stopReason: "loop_end" };
 
+  // payment.id 로 dedup. PortOne cursor 페이지네이션이 inclusive 라
+  // 페이지 경계에서 마지막 결제가 다음 페이지 첫 결제로 다시 들어오는 경우
+  // 있어서 합산 시 inflate. id 기준으로 한 번 처리.
+  const seenIds = new Set<string>();
+
   let cursor: string | undefined;
   for (let i = 0; i < 200 && all.length < cap; i++) {
     const { url, status, data } = await fetchCursorPage({
@@ -126,8 +131,18 @@ export async function fetchAllPaidPayments(opts: {
       break;
     }
 
-    const payments = items.map((it) => it.payment).filter((p) => p);
-    all.push(...payments);
+    let pageDups = 0;
+    for (const it of items) {
+      const p = it.payment;
+      if (!p) continue;
+      const id = (p as any).id;
+      if (id && seenIds.has(id)) {
+        pageDups += 1;
+        continue;
+      }
+      if (id) seenIds.add(id);
+      all.push(p);
+    }
     const lastCursor = items.length > 0 ? items[items.length - 1].cursor : null;
 
     debug.attempts.push({
