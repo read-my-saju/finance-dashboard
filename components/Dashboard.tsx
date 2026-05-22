@@ -45,8 +45,8 @@ type ProfitTotals = {
   adSpend: number;
   contributionProfit: number;
   contributionMargin: number | null;
-  realRoas: number | null;
-  breakEvenRoas: number | null;
+  roas: number | null;
+  breakEvenRoas: number;
   status: "흑자" | "손익분기" | "적자";
   adAdvice: "증액 가능" | "광고비 주의" | "광고비 없음";
   reportCount: number;
@@ -72,8 +72,8 @@ type DailyRow = {
   adSpend: number;
   contributionProfit: number;
   contributionMargin: number | null;
-  realRoas: number | null;
-  breakEvenRoas: number | null;
+  roas: number | null;
+  breakEvenRoas: number;
   reportCount: number;
   cancelledAmount: number;
 };
@@ -232,10 +232,8 @@ export default function Dashboard() {
         </Card>
         <Card>
           <CardHeader
-            title="ROAS vs 손익분기(BEP)"
-            badge={summary?.totals.breakEvenRoas !== null && summary?.totals.breakEvenRoas !== undefined
-              ? `BEP ${fmtPct(summary?.totals.breakEvenRoas ?? null, 0)}`
-              : undefined}
+            title="ROAS vs 손익분기 ROAS"
+            badge="BEP 118% · 결제매출 기준"
           />
           <RoasChart rows={daily?.daily ?? []} />
         </Card>
@@ -417,13 +415,17 @@ function KpiStrip({
   const pgDelta = delta((d) => d.pgFee);
   const reportDelta = delta((d) => d.reportCost);
 
+  // VAT 제외 매출 (첫 카드 서브표기용) — 결제매출 × 10/11 동등.
+  const revenueExVat = sourceNetRevenue - sourceNetRevenue / 11;
+
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       <KpiCard
-        label="순매출"
+        label="VAT 포함 결제매출"
         value={sourceNetRevenue}
         delta={netDelta}
         sparkData={finishedDaily.map((d) => d.netRevenue)}
+        subText={`VAT 제외 ${fmtKrw(revenueExVat)}`}
       />
       <KpiCard
         label="광고비"
@@ -453,13 +455,14 @@ function KpiStrip({
 }
 
 function KpiCard({
-  label, value, delta, deltaInverse, sparkData,
+  label, value, delta, deltaInverse, sparkData, subText,
 }: {
   label: string;
   value: number;
   delta: number | null;
   deltaInverse?: boolean;        // 광고비/수수료처럼 "줄어드는 게 좋은" 지표는 색 반전
   sparkData: number[];
+  subText?: string;
 }) {
   const sparkPoints = sparkData.map((v, i) => ({ x: i, y: v }));
   const positive = delta !== null && delta >= 0;
@@ -474,6 +477,9 @@ function KpiCard({
       <div className="mt-1.5 text-2xl font-bold tracking-tight text-gray-900">
         {fmtKrw(value)}
       </div>
+      {subText && (
+        <div className="mt-0.5 text-[11px] text-gray-400">{subText}</div>
+      )}
       <div className="mt-2 flex items-center justify-between">
         <div className={`text-xs font-medium ${arrowColor}`}>
           {delta === null ? "—" : `${positive ? "▲" : "▼"} ${Math.abs(delta).toFixed(1)}%`}
@@ -493,23 +499,26 @@ function KpiCard({
 }
 
 function RoasKpiCard({ totals }: { totals?: ProfitTotals }) {
-  const roas = totals?.realRoas ?? null;
-  const bep = totals?.breakEvenRoas ?? null;
-  const diff = roas !== null && bep !== null ? roas - bep : null;
+  const roas = totals?.roas ?? null;
+  const bep = totals?.breakEvenRoas ?? 118;
+  const diff = roas !== null ? roas - bep : null;
   const above = diff !== null && diff > 0;
   const advice = totals?.adAdvice ?? "—";
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white p-4">
-      <div className="text-xs font-medium text-gray-500">실질 ROAS</div>
+      <div className="text-xs font-medium text-gray-500">ROAS</div>
       <div className="mt-1.5 text-2xl font-bold tracking-tight text-gray-900">
         {fmtPct(roas, 1)}
+      </div>
+      <div className="mt-0.5 text-[11px] text-gray-400">
+        포트원 결제매출(VAT 포함) ÷ 광고비 · 손익분기 118%
       </div>
       <div className="mt-2 flex items-center justify-between">
         <span className={`text-xs font-medium ${
           diff === null ? "text-gray-400" : above ? "text-emerald-600" : "text-rose-600"
         }`}>
-          {bep !== null ? `BEP ${bep.toFixed(0)}% 대비 ${diff !== null ? (diff >= 0 ? "+" : "") + diff.toFixed(1) + "%p" : "—"}` : "BEP —"}
+          {`BEP 118% 대비 ${diff !== null ? (diff >= 0 ? "+" : "") + diff.toFixed(1) + "%p" : "—"}`}
         </span>
         <span className={`rounded-md border px-2 py-0.5 text-[10px] font-medium ${
           advice === "증액 가능" ? "border-emerald-200 bg-emerald-50 text-emerald-700"
@@ -609,15 +618,12 @@ function RoasChart({ rows }: { rows: DailyRow[] }) {
     .filter((r) => r.adSpend > 0 && r.date < today)
     .map((r) => ({
       date: r.date,
-      roas: r.realRoas !== null ? Number(r.realRoas.toFixed(1)) : null,
-      bep: r.breakEvenRoas !== null ? Number(r.breakEvenRoas.toFixed(1)) : null,
+      roas: r.roas !== null ? Number(r.roas.toFixed(1)) : null,
     }));
 
   if (data.length === 0) {
     return <p className="py-12 text-center text-sm text-gray-400">광고비 집행 일자가 없습니다.</p>;
   }
-
-  const bepAvg = data.reduce((a, b) => a + (b.bep ?? 0), 0) / Math.max(1, data.length);
 
   return (
     <div style={{ width: "100%", height: 320 }}>
@@ -627,9 +633,15 @@ function RoasChart({ rows }: { rows: DailyRow[] }) {
           <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#9ca3af" }} tickLine={false} axisLine={false} />
           <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} tickLine={false} axisLine={false}
             tickFormatter={(v: number) => `${v.toFixed(0)}%`} />
-          <Tooltip formatter={(v: number, name: string) => [`${v.toFixed(1)}%`, name === "roas" ? "실질 ROAS" : "BEP"]} />
-          <ReferenceLine y={bepAvg} stroke="#fb7185" strokeWidth={1.5} strokeDasharray="6 4" label={{ value: `BEP ${bepAvg.toFixed(0)}%`, position: "insideTopRight", fill: "#fb7185", fontSize: 11 }} />
-          <Line type="monotone" dataKey="roas" stroke="#0f766e" strokeWidth={2.5} dot={false} name="실질 ROAS" />
+          <Tooltip formatter={(v: number) => [`${v.toFixed(1)}%`, "ROAS"]} />
+          <ReferenceLine
+            y={118}
+            stroke="#fb7185"
+            strokeWidth={1.5}
+            strokeDasharray="6 4"
+            label={{ value: "BEP 118% (결제매출 기준)", position: "insideTopRight", fill: "#fb7185", fontSize: 11 }}
+          />
+          <Line type="monotone" dataKey="roas" stroke="#0f766e" strokeWidth={2.5} dot={false} name="ROAS" />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -721,11 +733,11 @@ function InsightPanel({
     lines.push({ tone: "info", text: "공헌이익이 손익분기 부근." });
   }
 
-  if (totals.adSpend > 0 && totals.realRoas !== null && totals.breakEvenRoas !== null) {
+  if (totals.adSpend > 0 && totals.roas !== null) {
     if (totals.adAdvice === "증액 가능") {
-      lines.push({ tone: "good", text: `실질 ROAS ${fmtPct(totals.realRoas, 0)} > BEP ${fmtPct(totals.breakEvenRoas, 0)} — 광고 증액 여력.` });
+      lines.push({ tone: "good", text: `ROAS ${fmtPct(totals.roas, 1)} > BEP 118% — 광고 증액 여력.` });
     } else {
-      lines.push({ tone: "warn", text: `실질 ROAS ${fmtPct(totals.realRoas, 0)} ≤ BEP ${fmtPct(totals.breakEvenRoas, 0)} — 광고비 효율 점검 필요.` });
+      lines.push({ tone: "warn", text: `ROAS ${fmtPct(totals.roas, 1)} ≤ BEP 118% — 광고비 효율 점검 필요.` });
     }
   } else if (totals.adSpend <= 0) {
     lines.push({ tone: "info", text: "광고비 집행 없음 — ROAS 계산 불가." });
@@ -784,7 +796,7 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
             <th className="py-2 pr-3 text-right font-medium">광고비</th>
             <th className="py-2 pr-3 text-right font-medium">공헌이익</th>
             <th className="py-2 pr-3 text-right font-medium">마진</th>
-            <th className="py-2 text-right font-medium">실질 ROAS</th>
+            <th className="py-2 text-right font-medium">ROAS</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
@@ -792,7 +804,7 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
             const profitColor = r.contributionProfit > 0 ? "text-emerald-600"
                               : r.contributionProfit < 0 ? "text-rose-600"
                               : "text-gray-500";
-            const belowBep = r.realRoas !== null && r.breakEvenRoas !== null && r.realRoas < r.breakEvenRoas && r.adSpend > 0;
+            const belowBep = r.roas !== null && r.roas < r.breakEvenRoas && r.adSpend > 0;
             const isToday = r.date === today;
             return (
               <tr key={r.date} className={`${belowBep ? "bg-rose-50/40" : ""} ${isToday ? "text-gray-400" : "text-gray-700"}`}>
@@ -806,14 +818,14 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
                 </td>
                 <td className="py-2 pr-3 text-right tabular-nums">{fmtPct(r.contributionMargin)}</td>
                 <td className={`py-2 text-right tabular-nums ${belowBep ? "text-rose-600 font-medium" : ""}`}>
-                  {fmtPct(r.realRoas, 0)}
+                  {fmtPct(r.roas, 0)}
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
-      <p className="mt-3 text-[11px] text-gray-400">※ BEP 미만 행은 옅은 적색 배경 · 당일(미완료) 은 회색</p>
+      <p className="mt-3 text-[11px] text-gray-400">※ BEP 118% 미만 행은 옅은 적색 배경 · 당일(미완료) 은 회색</p>
     </div>
   );
 }
