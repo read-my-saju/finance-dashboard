@@ -1,15 +1,16 @@
 /**
  * PortOne 결제 + Meta 광고비 를 일별로 결합해 손익 시계열을 만든다.
  *
- * 입력:
- *   - PortOne payments (raw): aggregate.ts 가 받아온 PortonePayment[]
- *   - Meta daily spend: { date, spend } 일별 광고비
- *   - settings: pgFeeRate, reportCostPerUnit
+ * 순매출 정의 (사장님 2026-05-23 확정):
+ *   순매출 = PortOne 콘솔의 "순거래액" 과 동일 값
+ *          = PAID 의 amount.total 합산 (CANCELLED 는 별도 통계, 순매출에서 빼지 않음)
+ *          = aggregate.ts 의 netRevenue
+ *   화면 상단 (결제 거래) 과 광고 손익 KPI 의 "순매출" 은 반드시 동일 값.
  *
- * 출력:
- *   - daily 손익 series (그래프/표 용)
- *   - period 합계 + KPI (calc 결과)
- *   - 인사이트 (가장 수익 좋은 캠페인 등 — 캠페인 집계는 caller 에서)
+ * 일별 결합:
+ *   - 일별 순매출 = 그날 PAID 의 amount.total + PARTIAL_CANCELLED 의 (total - cancelled)
+ *   - 일별 결제 건수 = 그날 PAID + PARTIAL_CANCELLED 건수
+ *   - 일별 광고비 = Meta insights 의 spend (광고계정 통화 KRW)
  *
  * lib/calc.ts 의 공식만 사용. UI/페이지에서 직접 계산하지 않는다.
  */
@@ -17,13 +18,13 @@
 import type { PortonePayment } from "./portone";
 import {
   calc,
-  calculateAvailableBeforeAds,
   calculateBreakEvenRoas,
   calculateContributionMargin,
   calculateContributionProfit,
   calculatePgFee,
+  calculateRealRoas,
   calculateReportCost,
-  calculateRoas,
+  calculateRevenueExVat,
   calculateVat,
   DEFAULT_PG_FEE_RATE,
   DEFAULT_REPORT_COST_PER_UNIT,
@@ -57,27 +58,26 @@ function ymd(d: Date): string {
 }
 
 /**
- * 일별 PortOne 통계.
- *   paidAmount      = 그 날 PAID 의 amount.total + PARTIAL_CANCELLED 의 (total - cancelledAmt)
- *   cancelledAmount = 그 날 CANCELLED + PARTIAL_CANCELLED 의 amount.cancelled
- *   reportCount     = PAID 건수 + PARTIAL_CANCELLED 건수 (= 발급된 보고서 수)
+ * 일별 PortOne 통계. aggregate.ts 의 netRevenue 정의와 동일 (PAID 만).
+ *   netRevenue       = PAID 의 amount.total + PARTIAL_CANCELLED 의 (total - cancelled)
+ *   reportCount      = PAID 건수 + PARTIAL_CANCELLED 건수
+ *   cancelledAmount  = 참고용 통계 (광고 손익 계산에는 안 씀)
  *
- * 사장님 비즈니스 정의: 보고서 1건당 250원 ASP 비용이 발생하고, 환불된 결제도
- * 보고서는 이미 발급된 상태라 환불 시점에 비용을 되돌리지 않는다. 즉
- * reportCount 는 paid 시점 기준으로만 카운트.
- *
- * 일자 기준: paidAt > requestedAt 순으로 fallback.
+ * CANCELLED 는 PortOne 콘솔의 "거래취소액" 별도 통계이므로 일별 순매출에서 빼지 않음.
  */
 function aggregatePortoneByDay(
   payments: PortonePayment[],
-): Map<string, { paidAmount: number; cancelledAmount: number; reportCount: number }> {
-  const m = new Map<string, { paidAmount: number; cancelledAmount: number; reportCount: number }>();
+): Map<string, { netRevenue: number; reportCount: number; cancelledAmount: number }> {
+  const m = new Map<
+    string,
+    { netRevenue: number; reportCount: number; cancelledAmount: number }
+  >();
 
-  function bump(date: string, paidDelta: number, cancelDelta: number, reportDelta: number) {
-    const cur = m.get(date) || { paidAmount: 0, cancelledAmount: 0, reportCount: 0 };
-    cur.paidAmount += paidDelta;
-    cur.cancelledAmount += cancelDelta;
+  function bump(date: string, netDelta: number, reportDelta: number, cancelDelta: number) {
+    const cur = m.get(date) || { netRevenue: 0, reportCount: 0, cancelledAmount: 0 };
+    cur.netRevenue += netDelta;
     cur.reportCount += reportDelta;
+    cur.cancelledAmount += cancelDelta;
     m.set(date, cur);
   }
 
@@ -98,11 +98,12 @@ function aggregatePortoneByDay(
     const date = ymd(at);
 
     if (status === "PAID") {
-      bump(date, total, 0, 1);
+      bump(date, total, 1, 0);
     } else if (status === "CANCELLED") {
-      bump(date, 0, total, 0);
+      // PortOne 콘솔 순거래액은 CANCELLED 제외. 일별 통계에도 미반영.
+      bump(date, 0, 0, total);
     } else if (status === "PARTIAL_CANCELLED") {
-      bump(date, total - cancelledAmt, cancelledAmt, 1);
+      bump(date, total - cancelledAmt, 1, cancelledAmt);
     }
   }
 
@@ -113,26 +114,24 @@ export type DailyProfitRow = {
   date: string;
   netRevenue: number;
   vat: number;
+  revenueExVat: number;
   pgFee: number;
   reportCost: number;
   adSpend: number;
   contributionProfit: number;
   contributionMargin: number | null;
-  roas: number | null;
+  realRoas: number | null;
   breakEvenRoas: number | null;
   reportCount: number;
-  // raw for sanity:
-  paidAmount: number;
-  cancelledAmount: number;
+  cancelledAmount: number; // 참고용 (PortOne 거래취소액)
 };
 
 export type ProfitSummary = {
   range: { from: string; until: string };
   settings: { pgFeeRate: number; reportCostPerUnit: number };
   totals: CalcResult & {
-    paidAmount: number;
-    cancelledAmount: number;
     reportCount: number;
+    cancelledAmount: number;
   };
   daily: DailyProfitRow[];
 };
@@ -157,50 +156,51 @@ export function computeProfit(args: {
   const allDates = new Set<string>([...portoneByDay.keys(), ...adByDay.keys()]);
   const dailyArr: DailyProfitRow[] = [];
 
-  let totalPaid = 0;
-  let totalCancelled = 0;
+  let totalNetRevenue = 0;
   let totalReport = 0;
   let totalAdSpend = 0;
+  let totalCancelled = 0;
 
   for (const date of Array.from(allDates).sort()) {
-    const po = portoneByDay.get(date) || { paidAmount: 0, cancelledAmount: 0, reportCount: 0 };
+    const po = portoneByDay.get(date) || { netRevenue: 0, reportCount: 0, cancelledAmount: 0 };
     const adSpend = adByDay.get(date) || 0;
 
-    const netRevenue = Math.max(0, po.paidAmount - po.cancelledAmount);
+    const netRevenue = po.netRevenue;
     const vat = calculateVat(netRevenue);
-    const pgFee = calculatePgFee(netRevenue, pgFeeRate);
+    const revenueExVat = calculateRevenueExVat(netRevenue);
+    const pgFee = calculatePgFee(revenueExVat, pgFeeRate);
     const reportCost = calculateReportCost(po.reportCount, reportCostPerUnit);
-    const cp = calculateContributionProfit(netRevenue, vat, pgFee, reportCost, adSpend);
+    const reportCostRate = revenueExVat > 0 ? reportCost / revenueExVat : 0;
+    const cp = calculateContributionProfit(revenueExVat, pgFee, reportCost, adSpend);
     const cm = calculateContributionMargin(cp, netRevenue);
-    const roas = calculateRoas(netRevenue, adSpend);
-    const avail = calculateAvailableBeforeAds(netRevenue, vat, pgFee, reportCost);
-    const ber = calculateBreakEvenRoas(netRevenue, avail);
+    const realRoas = calculateRealRoas(revenueExVat, adSpend);
+    const ber = calculateBreakEvenRoas(pgFeeRate, reportCostRate);
 
     dailyArr.push({
       date,
       netRevenue,
       vat,
+      revenueExVat,
       pgFee,
       reportCost,
       adSpend,
       contributionProfit: cp,
       contributionMargin: cm,
-      roas,
+      realRoas,
       breakEvenRoas: ber,
       reportCount: po.reportCount,
-      paidAmount: po.paidAmount,
       cancelledAmount: po.cancelledAmount,
     });
 
-    totalPaid += po.paidAmount;
-    totalCancelled += po.cancelledAmount;
+    totalNetRevenue += netRevenue;
     totalReport += po.reportCount;
     totalAdSpend += adSpend;
+    totalCancelled += po.cancelledAmount;
   }
 
+  // 기간 합계: calc() 한 번으로 계산 (단일 진실).
   const periodCalc = calc({
-    paidAmount: totalPaid,
-    cancelledAmount: totalCancelled,
+    netRevenue: totalNetRevenue,
     adSpend: totalAdSpend,
     reportCount: totalReport,
     pgFeeRate,
@@ -212,9 +212,8 @@ export function computeProfit(args: {
     settings: { pgFeeRate, reportCostPerUnit },
     totals: {
       ...periodCalc,
-      paidAmount: totalPaid,
-      cancelledAmount: totalCancelled,
       reportCount: totalReport,
+      cancelledAmount: totalCancelled,
     },
     daily: dailyArr,
   };
