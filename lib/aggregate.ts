@@ -129,11 +129,13 @@ export function aggregate(
     const status = (p.status || "").toUpperCase();
 
     // 테스트 채널 결제 제외 (PortOne 콘솔의 "테스트 데이터" toggle OFF 와 동일).
-    // SelectedChannel.type === "TEST" 이면 테스트 연동 채널. 콘솔 export 도 제외.
-    // 사장님 PortOne 엑셀 vs 우리 CSV 1:1 diff 결과 50건 / 686,260원 차이가
-    // 모두 이 케이스로 확인됨.
     const channelType = (p.channel?.type || "").toUpperCase();
     if (channelType === "TEST") continue;
+
+    // PortOne 콘솔은 KRW 만 표시 (엑셀 export 도 currency 분리). USD 결제는
+    // amount.total 단위가 KRW 와 달라 합산하면 +27K 정도 왜곡 발생. KRW 만.
+    const currency = ((p as any).currency || "").toUpperCase();
+    if (currency && currency !== "KRW") continue;
 
     const amount = p.amount || {};
     const total = Number(amount.total) || 0;
