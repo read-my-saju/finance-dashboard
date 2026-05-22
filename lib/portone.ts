@@ -54,6 +54,7 @@ export async function listPayments(opts: {
   pageSize?: number;
 }): Promise<PortoneListResponse> {
   const pageSize = opts.pageSize ?? 100;
+  const storeId = process.env.PORTONE_STORE_ID;
 
   // pattern A: query-string flat params (V2 docs 의 simple form).
   const qs = new URLSearchParams();
@@ -62,6 +63,8 @@ export async function listPayments(opts: {
   qs.set("page.size", String(pageSize));
   if (opts.cursor) qs.set("page.number", opts.cursor);
   if (opts.status) qs.set("filter.status", opts.status);
+  // V2 list_payments 는 storeId 필수 (organization 가입 후 store 단위 키 발급).
+  if (storeId) qs.set("filter.storeId", storeId);
 
   const url = `${BASE}/payments?${qs.toString()}`;
   const res = await fetch(url, {
