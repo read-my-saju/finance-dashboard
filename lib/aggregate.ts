@@ -1,17 +1,24 @@
 import type { PortonePayment } from "./portone";
-import { channelLabel } from "./portone";
 
 export type DashboardSummary = {
   range: { from: string; until: string };
   fetchedAt: string;
-  gross: number;            // 거래액 (PAID 결제의 amount.total 합)
-  netRevenue: number;       // 순거래액 (gross - cancelled)
+  gross: number;            // 거래액 (PAID + CANCELLED + PARTIAL_CANCELLED 의 amount.total)
+  netRevenue: number;       // 순거래액 = gross - cancelled
   cancelled: number;        // 거래취소액 (amount.cancelled 합)
-  paidCount: number;        // PAID 건수
-  cancelCount: number;      // 취소 건수
+  paidCount: number;
+  cancelCount: number;
   byChannel: Array<{ label: string; gross: number; net: number; count: number; pct: number }>;
-  daily: Array<{ date: string; gross: number }>;          // 일별
-  weekly: Array<{ weekStart: string; gross: number }>;    // 주간
+  daily: Array<{ date: string; gross: number }>;
+  weekly: Array<{ weekStart: string; gross: number }>;
+};
+
+// PortOne 의 다양한 결제 정보를 우리가 다루기 위한 확장 타입.
+type AnyPayment = PortonePayment & {
+  method?: {
+    type?: string;        // PaymentMethodCard / PaymentMethodEasyPay / ...
+    provider?: string;    // KAKAOPAY / NAVERPAY / TOSSPAY / SAMSUNGPAY ...
+  } | null;
 };
 
 function parseIso(s?: string): Date | null {
@@ -33,16 +40,69 @@ function ymd(d: Date): string {
 
 function weekStart(d: Date): string {
   const x = new Date(d);
-  const day = x.getDay(); // 0=Sun
-  const diff = (day + 6) % 7; // Mon=0
+  const day = x.getDay();
+  const diff = (day + 6) % 7;
   x.setDate(x.getDate() - diff);
   x.setHours(0, 0, 0, 0);
   return ymd(x);
 }
 
-export function aggregate(payments: PortonePayment[], range: { from: string; until: string }): DashboardSummary {
-  let gross = 0;
-  let cancelled = 0;
+/**
+ * PortOne 콘솔의 "결제수단별" 분류와 동일하게:
+ *   - method.type === PaymentMethodCard → "신용카드"
+ *   - method.type === PaymentMethodEasyPay → provider 매핑 (카카오페이/Npay/토스페이/삼성페이/...)
+ *   - method.type === PaymentMethodTransfer → "계좌이체"
+ *   - method.type === PaymentMethodVirtualAccount → "가상계좌"
+ *   - method.type === PaymentMethodMobile → "휴대폰결제"
+ *   - 그 외 → channel.pgProvider 로 fallback
+ */
+function methodLabel(payment: AnyPayment): string {
+  const m = payment.method || {};
+  const type = (m.type || "").toUpperCase();
+  const provider = (m.provider || "").toUpperCase();
+
+  if (type.includes("CARD")) return "신용카드";
+  if (type.includes("EASYPAY") || type.includes("EASY_PAY")) {
+    if (provider.includes("KAKAOPAY")) return "카카오페이";
+    if (provider.includes("NAVERPAY")) return "Npay";
+    if (provider.includes("TOSSPAY") || provider.includes("TOSS_BRANDPAY")) return "토스페이";
+    if (provider.includes("SAMSUNGPAY")) return "삼성페이";
+    if (provider.includes("PAYCO")) return "페이코";
+    if (provider.includes("APPLEPAY")) return "Apple Pay";
+    if (provider.includes("PAYPAL")) return "PayPal";
+    if (provider.includes("SSGPAY")) return "SSG페이";
+    if (provider.includes("LPAY")) return "LPAY";
+    if (provider.includes("LINEPAY")) return "라인페이";
+    if (provider.includes("ALIPAY")) return "Alipay";
+    if (provider) return provider;
+    return "간편결제";
+  }
+  if (type.includes("TRANSFER")) return "계좌이체";
+  if (type.includes("VIRTUAL")) return "가상계좌";
+  if (type.includes("MOBILE")) return "휴대폰결제";
+  if (type.includes("CONVENIENCE")) return "편의점";
+  if (type.includes("GIFT")) return "상품권";
+
+  // fallback to pgProvider
+  const pg = (payment.channel?.pgProvider || "").toUpperCase();
+  if (pg.includes("KAKAOPAY")) return "카카오페이";
+  if (pg.includes("INICIS") || pg.includes("KG")) return "KG이니시스";
+  if (pg.includes("PAYPAL")) return "PayPal";
+  return pg || "기타";
+}
+
+export function aggregate(
+  payments: PortonePayment[],
+  range: { from: string; until: string },
+): DashboardSummary {
+  // PortOne 의 status 별 처리:
+  //  - PAID: 정상 결제. amount.cancelled = 0 (보통).
+  //  - PARTIAL_CANCELLED: 부분 환불. amount.total = 원, amount.cancelled = 환불액.
+  //  - CANCELLED: 전액 환불. amount.cancelled = amount.total.
+  //  - 그 외 (FAILED, READY, PAY_PENDING, VIRTUAL_ACCOUNT_ISSUED): 거래액 합산 제외.
+
+  let gross = 0;        // PortOne "거래액"
+  let cancelled = 0;    // PortOne "거래취소액"
   let paidCount = 0;
   let cancelCount = 0;
 
@@ -50,33 +110,37 @@ export function aggregate(payments: PortonePayment[], range: { from: string; unt
   const dailyMap = new Map<string, number>();
   const weeklyMap = new Map<string, number>();
 
-  for (const p of payments) {
+  const INCLUDE_STATUSES = new Set(["PAID", "CANCELLED", "PARTIAL_CANCELLED"]);
+
+  for (const raw of payments) {
+    const p = raw as AnyPayment;
+    const status = (p.status || "").toUpperCase();
+    if (!INCLUDE_STATUSES.has(status)) continue;
+
     const amount = p.amount || {};
     const total = Number(amount.total) || 0;
     const cancelledAmt = Number(amount.cancelled) || 0;
     const net = total - cancelledAmt;
-    const status = (p.status || "").toUpperCase();
-    const label = channelLabel(p.channel?.pgProvider);
 
-    if (status === "PAID") {
-      gross += total;
-      cancelled += cancelledAmt;
-      paidCount += 1;
-      if (cancelledAmt > 0) cancelCount += 1;
+    gross += total;
+    cancelled += cancelledAmt;
+    if (status === "PAID" || status === "PARTIAL_CANCELLED") paidCount += 1;
+    if (status === "CANCELLED" || status === "PARTIAL_CANCELLED") cancelCount += 1;
 
-      const c = channelMap.get(label) || { gross: 0, net: 0, count: 0 };
-      c.gross += total;
-      c.net += net;
-      c.count += 1;
-      channelMap.set(label, c);
+    const label = methodLabel(p);
+    const c = channelMap.get(label) || { gross: 0, net: 0, count: 0 };
+    c.gross += total;
+    c.net += net;
+    c.count += 1;
+    channelMap.set(label, c);
 
-      const at = parseIso(p.paidAt) || parseIso(p.requestedAt);
-      if (at) {
-        const dkey = ymd(at);
-        dailyMap.set(dkey, (dailyMap.get(dkey) || 0) + total);
-        const wkey = weekStart(at);
-        weeklyMap.set(wkey, (weeklyMap.get(wkey) || 0) + total);
-      }
+    const at = parseIso(p.paidAt) || parseIso(p.requestedAt);
+    if (at) {
+      const dkey = ymd(at);
+      // 차트는 net 기준 (PortOne 콘솔의 거래액 그래프와 동일).
+      dailyMap.set(dkey, (dailyMap.get(dkey) || 0) + net);
+      const wkey = weekStart(at);
+      weeklyMap.set(wkey, (weeklyMap.get(wkey) || 0) + net);
     }
   }
 
