@@ -27,21 +27,28 @@ export async function GET(req: NextRequest) {
   const from = searchParams.get("from") || "2026-01-01";
   const until = searchParams.get("until") || new Date().toISOString().slice(0, 10);
   const force = searchParams.get("force") === "1";
+  const debug = searchParams.get("debug") === "1";
 
   const cacheKey = `${from}|${until}`;
   const now = Date.now();
-  if (!force && cache && cache.key === cacheKey && cache.expiresAt > now) {
+  if (!force && !debug && cache && cache.key === cacheKey && cache.expiresAt > now) {
     return NextResponse.json({ ...cache.payload, cached: true });
   }
 
   try {
     const fromISO = isoStartOfDay(from);
     const untilISO = isoEndOfDay(until);
-    const payments = await fetchAllPaidPayments({ fromISO, untilISO });
+    const { items: payments, debug: fetchDebug } = await fetchAllPaidPayments({
+      fromISO,
+      untilISO,
+    });
     const summary = aggregate(payments, { from, until });
 
-    cache = { key: cacheKey, expiresAt: now + TTL_MS, payload: summary };
-    return NextResponse.json({ ...summary, cached: false });
+    const payload: any = { ...summary };
+    if (debug) payload._debug = fetchDebug;
+    else cache = { key: cacheKey, expiresAt: now + TTL_MS, payload };
+
+    return NextResponse.json({ ...payload, cached: false });
   } catch (e: any) {
     return NextResponse.json(
       { error: "fetch_failed", detail: String(e?.message || e) },

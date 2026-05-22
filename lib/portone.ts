@@ -1,9 +1,9 @@
 /**
  * PortOne V2 결제 조회 client.
  *
- * 본 대시보드는 read-only 이므로 결제 / 환불 / 취소는 호출하지 않는다.
- * 다만 PortOne V2 `GET /payments` 의 정확한 query schema 는 콘솔 / docs 의
- * 버전에 따라 다를 수 있어 두 가지 패턴을 모두 시도한다.
+ * V2 API 의 정확한 query schema 는 콘솔 / docs 의 minor version 에 따라 다를
+ * 수 있어 방어적으로 작성. fetchAllPaidPayments 가 debug 정보 (요청 URL,
+ * 응답 size, 처리한 page 수) 를 함께 반환한다.
  */
 
 const BASE = "https://api.portone.io";
@@ -19,7 +19,7 @@ export type PortonePayment = {
     cancelled?: number;
   };
   channel?: {
-    pgProvider?: string;     // KAKAOPAY, INICIS_V2, PAYPAL_V2, NICEPAY ...
+    pgProvider?: string;
     type?: string;
   };
   cancellations?: Array<{ amount?: number; cancelledAt?: string; reason?: string }>;
@@ -29,6 +29,21 @@ export type PortoneListResponse = {
   items: PortonePayment[];
   nextCursor?: string | null;
   totalCount?: number;
+  /** raw 응답 keys (디버그용). */
+  rawKeys?: string[];
+};
+
+export type FetchDebug = {
+  attempts: Array<{
+    page: number;
+    url: string;
+    status: number;
+    itemsCount: number;
+    rawKeys: string[];
+    hasNextCursor: boolean;
+  }>;
+  totalItems: number;
+  stopReason: string;
 };
 
 function authHeader(): Record<string, string> {
@@ -41,90 +56,132 @@ function authHeader(): Record<string, string> {
 }
 
 /**
- * PortOne V2 GET /payments — 결제 일괄 조회.
- *
- * PortOne V2 docs 기준 `requestBody` 가 query string 으로 전달되는 special
- * format 을 쓴다. 여기서는 호환을 위해 두 패턴을 순차 시도한다.
+ * 단일 page fetch. raw 응답을 분석 가능하도록 그대로 반환.
  */
-export async function listPayments(opts: {
-  from: string;                // ISO 8601 (UTC)
-  until: string;               // ISO 8601 (UTC)
-  status?: string;             // "PAID" 등 — 비우면 전체
-  cursor?: string;
-  pageSize?: number;
-}): Promise<PortoneListResponse> {
-  const pageSize = opts.pageSize ?? 100;
+async function fetchOnePage(opts: {
+  from: string;
+  until: string;
+  status?: string;
+  page: number;
+  pageSize: number;
+  includeStoreId: boolean;
+}): Promise<{ url: string; status: number; data: any }> {
   const storeId = process.env.PORTONE_STORE_ID;
-
-  // pattern A: query-string flat params (V2 docs 의 simple form).
   const qs = new URLSearchParams();
   qs.set("requestedTimeRange.from", opts.from);
   qs.set("requestedTimeRange.until", opts.until);
-  qs.set("page.size", String(pageSize));
-  if (opts.cursor) qs.set("page.number", opts.cursor);
+  qs.set("page.size", String(opts.pageSize));
+  qs.set("page.number", String(opts.page));
   if (opts.status) qs.set("filter.status", opts.status);
-  // V2 list_payments 는 storeId 필수 (organization 가입 후 store 단위 키 발급).
-  if (storeId) qs.set("filter.storeId", storeId);
-
+  if (opts.includeStoreId && storeId) qs.set("filter.storeId", storeId);
   const url = `${BASE}/payments?${qs.toString()}`;
   const res = await fetch(url, {
     method: "GET",
     headers: authHeader(),
     cache: "no-store",
   });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`PortOne list_payments failed: ${res.status} ${text.slice(0, 400)}`);
+  let data: any = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
   }
-  const data = (await res.json()) as any;
+  return { url, status: res.status, data };
+}
 
-  // 정상 응답이면 items 가 있음.
-  const items: PortonePayment[] = Array.isArray(data?.items)
-    ? data.items
-    : Array.isArray(data?.data)
-      ? data.data
-      : [];
-  return {
-    items,
-    nextCursor: data?.page?.next ?? data?.nextCursor ?? null,
-    totalCount: data?.totalCount ?? data?.page?.totalCount,
-  };
+function extractItems(data: any): PortonePayment[] {
+  if (!data) return [];
+  if (Array.isArray(data.items)) return data.items;
+  if (Array.isArray(data.data)) return data.data;
+  if (Array.isArray(data.payments)) return data.payments;
+  return [];
+}
+
+function rawKeys(data: any): string[] {
+  if (!data || typeof data !== "object") return [];
+  return Object.keys(data);
 }
 
 /**
  * 기간 내 모든 PAID 결제를 페이지네이션으로 모두 가져온다.
- * 큰 결과는 메모리 부담이 있으므로 cap 으로 안전 한도를 둔다.
+ * 첫 page 응답 형식을 보고 pagination 전략을 결정.
  */
 export async function fetchAllPaidPayments(opts: {
   fromISO: string;
   untilISO: string;
   cap?: number;
-}): Promise<PortonePayment[]> {
+}): Promise<{ items: PortonePayment[]; debug: FetchDebug }> {
   const cap = opts.cap ?? 20000;
   const all: PortonePayment[] = [];
-  let cursor: string | undefined;
-  // PortOne V2 가 page.number 기반이라 1 부터 시작.
+  const debug: FetchDebug = { attempts: [], totalItems: 0, stopReason: "" };
+
   let page = 1;
+  let includeStoreId = true;
+  const pageSize = 100;
+  let stopReason = "loop_end";
+
   for (let i = 0; i < 200 && all.length < cap; i++) {
-    const resp = await listPayments({
+    const { url, status, data } = await fetchOnePage({
       from: opts.fromISO,
       until: opts.untilISO,
       status: "PAID",
-      cursor: String(page),
-      pageSize: 100,
+      page,
+      pageSize,
+      includeStoreId,
     });
-    if (!resp.items.length) break;
-    all.push(...resp.items);
-    if (!resp.nextCursor && resp.items.length < 100) break;
+
+    if (status !== 200) {
+      // 첫 page 가 4xx 면 storeId 가 문제일 수 있으니 한 번 더 storeId 없이.
+      if (i === 0 && includeStoreId) {
+        includeStoreId = false;
+        debug.attempts.push({
+          page,
+          url,
+          status,
+          itemsCount: 0,
+          rawKeys: rawKeys(data),
+          hasNextCursor: false,
+        });
+        continue;
+      }
+      stopReason = `status_${status}_at_page_${page}`;
+      debug.attempts.push({
+        page,
+        url,
+        status,
+        itemsCount: 0,
+        rawKeys: rawKeys(data),
+        hasNextCursor: false,
+      });
+      break;
+    }
+
+    const items = extractItems(data);
+    debug.attempts.push({
+      page,
+      url,
+      status,
+      itemsCount: items.length,
+      rawKeys: rawKeys(data),
+      hasNextCursor: Boolean(data?.page?.next ?? data?.nextCursor),
+    });
+    all.push(...items);
+    if (items.length === 0) {
+      stopReason = `empty_page_${page}`;
+      break;
+    }
+    if (items.length < pageSize) {
+      stopReason = `partial_page_${page}`;
+      break;
+    }
     page += 1;
   }
-  return all.slice(0, cap);
+
+  debug.totalItems = all.length;
+  debug.stopReason = stopReason;
+  return { items: all.slice(0, cap), debug };
 }
 
-/**
- * pgProvider → 사용자 친화 라벨 매핑.
- */
 export function channelLabel(pgProvider?: string): string {
   if (!pgProvider) return "기타";
   const p = pgProvider.toUpperCase();
