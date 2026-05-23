@@ -31,19 +31,25 @@ function parseIso(s?: string): Date | null {
 }
 
 function ymd(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  // KST (Asia/Seoul, UTC+9) 기준 YYYY-MM-DD.
+  //
+  // Vercel serverless 는 UTC 로 동작하므로 d.getFullYear()/getMonth()/getDate() 를
+  // 그대로 쓰면 KST 자정~오전 8:59 결제가 전날로 분류된다 (PortOne 콘솔은 KST 기준이라
+  // 같은 결제를 콘솔과 우리 일별표가 다른 날짜로 표시하는 사고가 재현됨).
+  // epoch 에 +9h 더한 후 toISOString().slice(0,10) 으로 KST 일자 추출.
+  const kst = new Date(d.getTime() + 9 * 3600 * 1000);
+  return kst.toISOString().slice(0, 10);
 }
 
 function weekStart(d: Date): string {
-  const x = new Date(d);
-  const day = x.getDay();
+  // KST 기준 일자 정렬을 위해 ymd 와 동일하게 +9h shift 후 UTC 메서드 사용.
+  // (local TZ getDay()/setDate() 는 server UTC 에 묶이므로 회피.)
+  const kst = new Date(d.getTime() + 9 * 3600 * 1000);
+  const day = kst.getUTCDay();
   const diff = (day + 6) % 7;
-  x.setDate(x.getDate() - diff);
-  x.setHours(0, 0, 0, 0);
-  return ymd(x);
+  kst.setUTCDate(kst.getUTCDate() - diff);
+  kst.setUTCHours(0, 0, 0, 0);
+  return kst.toISOString().slice(0, 10);
 }
 
 /**
