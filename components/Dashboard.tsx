@@ -322,6 +322,10 @@ function FilterBar({
         <span className="text-gray-500">종료</span>
         <input type="date" value={until} onChange={(e) => setUntil(e.target.value)} className="bg-transparent outline-none" />
       </div>
+      <button type="button" onClick={() => { setFrom(todayStr()); setUntil(todayStr()); }}
+        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">오늘</button>
+      <button type="button" onClick={() => { setFrom(daysAgo(1)); setUntil(daysAgo(1)); }}
+        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">어제</button>
       <button type="button" onClick={() => { setFrom("2026-01-01"); setUntil(todayStr()); }}
         className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">전체 기간</button>
       <button type="button" onClick={() => { setFrom(daysAgo(29)); setUntil(todayStr()); }}

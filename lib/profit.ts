@@ -51,10 +51,16 @@ function parseIso(s?: string): Date | null {
 }
 
 function ymd(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  // KST (Asia/Seoul, UTC+9) 기준 YYYY-MM-DD.
+  //
+  // Vercel serverless 는 UTC 로 동작하므로 d.getFullYear()/getMonth()/getDate() 를
+  // 그대로 쓰면 KST 자정~오전 8:59 결제가 전날로 분류된다. 사장님 화면 기준이
+  // KST 이고 PortOne 콘솔도 KST 이므로 일자 키를 KST 로 통일.
+  //
+  // 트릭: epoch 에 +9h 를 더한 Date 의 toISOString().slice(0,10) 은 KST 일자.
+  // (meta-store.ts 와 동일 패턴 — 결과적으로 모든 일별 집계가 같은 TZ 기준.)
+  const kst = new Date(d.getTime() + 9 * 3600 * 1000);
+  return kst.toISOString().slice(0, 10);
 }
 
 /**
