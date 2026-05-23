@@ -11,12 +11,10 @@ import {
   aggregateMetaByCampaign,
   aggregateMetaByDay,
   fetchCampaignBudgets,
-  fetchDailyCampaignInsights,
-  MetaApiError,
-  MetaConfigError,
   type MetaCampaignBudget,
   type MetaInsightRow,
 } from "./meta";
+import { loadIncrementalRows } from "./meta-store";
 import { computeProfit, type ProfitSummary } from "./profit";
 
 const TTL_MS = 5 * 60 * 1000;
@@ -58,31 +56,24 @@ async function loadRawData(opts: LoadOptions): Promise<CacheEntry> {
     untilISO: isoEndOfDay(opts.until),
   });
 
-  let metaRows: MetaInsightRow[] = [];
+  // Meta 광고 데이터: rolling 7일 incremental sync 를 거친 영속 저장소에서 로드.
+  // KV 가 비활성이면 자동으로 [from, until] 전체 재조회 (fallback).
+  const incremental = await loadIncrementalRows({
+    requestedFrom: opts.from,
+    requestedUntil: opts.until,
+    force: Boolean(opts.force),
+  });
+  const metaRows: MetaInsightRow[] = incremental.rows;
+  let metaError: string | null = incremental.metaError;
+
+  // 예산은 KV 대신 매 호출 시 Meta /campaigns 엔드포인트에서 받음 — 일별 캐싱이 무의미한
+  // 정적 메타데이터이고, 캠페인 수가 적어 단일 페이지로 끝나므로 cost 적음.
+  // 실패는 KPI/캠페인 표시를 막지 않게 흡수.
   let metaBudgets: Map<string, MetaCampaignBudget> = new Map();
-  let metaError: string | null = null;
   try {
-    const { rows } = await fetchDailyCampaignInsights({
-      from: opts.from,
-      until: opts.until,
-    });
-    metaRows = rows;
-    // 예산 fetch 실패는 KPI/캠페인 표시를 막지 않게 별도 try.
-    try {
-      metaBudgets = await fetchCampaignBudgets();
-    } catch (e: any) {
-      // 예산 조회 실패는 caller 가 metaError 로 알 필요 없음 — 표에서 "-" 로 표시되므로
-      // 조용히 빈 map 유지. 콘솔에는 한 줄 남겨 debug.
-      console.warn("[dashboard-cache] fetchCampaignBudgets failed:", String(e?.message || e).slice(0, 200));
-    }
+    metaBudgets = await fetchCampaignBudgets();
   } catch (e: any) {
-    if (e instanceof MetaConfigError) {
-      metaError = e.message;
-    } else if (e instanceof MetaApiError) {
-      metaError = e.userMessage;
-    } else {
-      metaError = `Meta 광고 데이터를 불러오지 못했습니다: ${String(e?.message || e).slice(0, 200)}`;
-    }
+    console.warn("[dashboard-cache] fetchCampaignBudgets failed:", String(e?.message || e).slice(0, 200));
   }
 
   const entry: CacheEntry = {
