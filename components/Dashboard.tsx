@@ -514,13 +514,13 @@ function RoasKpiCard({ totals }: { totals?: ProfitTotals }) {
       <div className="mt-0.5 text-[11px] text-gray-400">
         포트원 결제매출(VAT 포함) ÷ 광고비 · 손익분기 118%
       </div>
-      <div className="mt-2 flex items-center justify-between">
-        <span className={`text-xs font-medium ${
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <span className={`min-w-0 flex-1 text-xs font-medium ${
           diff === null ? "text-gray-400" : above ? "text-emerald-600" : "text-rose-600"
         }`}>
           {`BEP 118% 대비 ${diff !== null ? (diff >= 0 ? "+" : "") + diff.toFixed(1) + "%p" : "—"}`}
         </span>
-        <span className={`rounded-md border px-2 py-0.5 text-[10px] font-medium ${
+        <span className={`shrink-0 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none ${
           advice === "증액 가능" ? "border-emerald-200 bg-emerald-50 text-emerald-700"
           : advice === "광고비 주의" ? "border-amber-200 bg-amber-50 text-amber-700"
           : "border-gray-200 bg-gray-50 text-gray-500"
