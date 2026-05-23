@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -158,7 +158,15 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 동시 진행 fetch 들 중 가장 최신 호출의 응답만 화면에 반영하기 위한 request id.
+  // 사용자가 "전체 기간" → "오늘" 같이 빠르게 다른 범위를 누르면, PortOne cursor
+  // 페이지네이션이 느려 전체 기간 fetch 가 늦게 끝나면서 오늘 응답을 덮어쓰는
+  // race condition 이 있었음. 각 load 호출에 id 를 매기고, 응답이 도착했을 때
+  // 더 새로운 호출이 있었으면 그 응답을 폐기.
+  const reqIdRef = useRef(0);
+
   const load = useCallback(async (force = false) => {
+    const myId = ++reqIdRef.current;
     setLoading(true);
     setError(null);
     const qs = new URLSearchParams({ from, until });
@@ -171,9 +179,11 @@ export default function Dashboard() {
         fetch(`/api/dashboard/daily?${q}`, { cache: "no-store" }),
         fetch(`/api/dashboard/meta-campaigns?${q}`, { cache: "no-store" }),
       ]);
+      if (reqIdRef.current !== myId) return;
       const [pJson, sJson, dJson, cJson] = await Promise.all([
         pRes.json(), sRes.json(), dRes.json(), cRes.json(),
       ]);
+      if (reqIdRef.current !== myId) return;
       if (!pRes.ok) {
         setError(pJson?.detail || pJson?.error || `payments HTTP ${pRes.status}`);
       } else {
@@ -183,13 +193,18 @@ export default function Dashboard() {
       if (dRes.ok) setDaily(dJson);
       if (cRes.ok) setCampaigns(cJson);
     } catch (e: any) {
+      if (reqIdRef.current !== myId) return;
       setError(String(e?.message || e));
     } finally {
-      setLoading(false);
+      if (reqIdRef.current === myId) setLoading(false);
     }
   }, [from, until]);
 
-  useEffect(() => { load(false); }, [load]);
+  useEffect(() => {
+    load(false);
+    // unmount / 다음 load 시작 시 stale 응답을 모두 폐기.
+    return () => { reqIdRef.current++; };
+  }, [load]);
 
   // 화면 순매출 = PortOne 콘솔 순거래액 = payments.netRevenue (단일 진실)
   // summary.totals.netRevenue 도 같은 값이지만 위 값을 우선 사용해 UI 동기화 보장.
