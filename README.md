@@ -63,6 +63,23 @@ KPI 카드에 표시됩니다.
 | `DEFAULT_REPORT_COST_PER_UNIT` | `250` | 보고서 1건당 LLM 비용 (원) |
 | `DASHBOARD_TIMEZONE` | `Asia/Seoul` | 일별 집계 타임존 |
 
+#### Meta 광고 incremental sync (권장 — 새로고침 비용 절감)
+
+Vercel 프로젝트 → **Storage → Marketplace → Upstash Redis** integration 을
+연결하면 다음 두 환경변수가 자동 주입됩니다. 별도 입력 불필요.
+
+| Name | 의미 |
+|---|---|
+| `KV_REST_API_URL` | Upstash Redis REST endpoint (Vercel integration 이 자동 주입) |
+| `KV_REST_API_TOKEN` | Upstash Redis REST token (Vercel integration 이 자동 주입) |
+
+연결되면:
+- 새로고침이 **rolling 7일 incremental sync** 로 동작 — 최근 7일만 Meta API 재호출, 7일 이전은 KV 저장본 그대로 사용.
+- last_synced_at 이 KV 에 유지되어 cold start 를 가로질러 보존.
+- Meta 어트리뷰션 윈도우 안에서 사후 갱신되는 전환/매출은 매번 덮어쓰기.
+
+연결 안 해도 대시보드는 정상 동작합니다 — 새로고침 시 매번 풀 fetch 로 fallback.
+
 > **보안**: 위 환경변수는 모두 **서버 사이드에서만** 사용합니다. `NEXT_PUBLIC_`
 > 접두사를 절대 붙이지 마세요 — 붙는 순간 프론트엔드 번들에 평문으로 박혀
 > 누구나 DevTools 에서 볼 수 있습니다.
@@ -115,7 +132,7 @@ openssl rand -hex 32
   - **일별 손익 차트** — 막대(순거래액·광고비) + 라인(기여이익)
   - **ROAS vs 손익분기 차트** — 실선/점선 비교
   - **비용 구조** — VAT / PG / 보고서 / 광고비 가로 막대
-  - **Meta 캠페인 표** — 광고비 큰 순 (CTR, CPC 포함)
+  - **Meta 캠페인 표** — 광고비 큰 순. 컬럼: 결과(구매수) · CPA · 예산 · 지출금액 · ROAS · CTR · 빈도 · CVR · CPM
   - **일별 손익 표** — 최근 30일
   - **인사이트 패널** — "증액 가능" / "광고비 주의" 자동 권고
 
