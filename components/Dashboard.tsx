@@ -89,11 +89,16 @@ type DailyData = {
 type CampaignRow = {
   campaignId: string;
   campaignName: string;
+  purchases: number;
+  cpa: number | null;
+  dailyBudget: number | null;
+  lifetimeBudget: number | null;
   spend: number;
-  impressions: number;
-  clicks: number;
+  roas: number | null;
   ctr: number | null;
-  cpc: number | null;
+  frequency: number | null;
+  cvr: number | null;
+  cpm: number | null;
 };
 
 type CampaignsData = {
@@ -830,6 +835,15 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
   );
 }
 
+function formatBudget(c: CampaignRow): string {
+  // 예산 표시 규칙:
+  //   daily_budget 우선 (운영자가 일 단위로 조정하는 게 일반적).
+  //   둘 다 null/0 이면 "-".
+  if (c.dailyBudget && c.dailyBudget > 0) return `${fmtKrw(c.dailyBudget)} / 일`;
+  if (c.lifetimeBudget && c.lifetimeBudget > 0) return `${fmtKrw(c.lifetimeBudget)} (총액)`;
+  return "—";
+}
+
 function CampaignTable({
   campaigns, loading, error,
 }: { campaigns: CampaignRow[]; loading: boolean; error: string | null }) {
@@ -843,11 +857,15 @@ function CampaignTable({
         <thead>
           <tr className="text-left text-xs text-gray-500">
             <th className="py-2 pr-4 font-medium">캠페인</th>
-            <th className="py-2 pr-4 text-right font-medium">광고비</th>
-            <th className="py-2 pr-4 text-right font-medium">노출</th>
-            <th className="py-2 pr-4 text-right font-medium">클릭</th>
-            <th className="py-2 pr-4 text-right font-medium">CTR</th>
-            <th className="py-2 text-right font-medium">CPC</th>
+            <th className="py-2 pr-3 text-right font-medium">결과</th>
+            <th className="py-2 pr-3 text-right font-medium">CPA</th>
+            <th className="py-2 pr-3 text-right font-medium">예산</th>
+            <th className="py-2 pr-3 text-right font-medium">지출금액</th>
+            <th className="py-2 pr-3 text-right font-medium">ROAS</th>
+            <th className="py-2 pr-3 text-right font-medium">CTR</th>
+            <th className="py-2 pr-3 text-right font-medium">빈도</th>
+            <th className="py-2 pr-3 text-right font-medium">CVR</th>
+            <th className="py-2 text-right font-medium">CPM</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
@@ -857,11 +875,23 @@ function CampaignTable({
                 <div className="truncate max-w-[260px]" title={c.campaignName}>{c.campaignName}</div>
                 <div className="text-[10px] text-gray-400">{c.campaignId}</div>
               </td>
-              <td className="py-2 pr-4 text-right tabular-nums">{fmtKrw(c.spend)}</td>
-              <td className="py-2 pr-4 text-right tabular-nums">{NUM.format(c.impressions)}</td>
-              <td className="py-2 pr-4 text-right tabular-nums">{NUM.format(c.clicks)}</td>
-              <td className="py-2 pr-4 text-right tabular-nums">{fmtPct(c.ctr, 2)}</td>
-              <td className="py-2 text-right tabular-nums">{c.cpc !== null ? fmtKrw(c.cpc) : "—"}</td>
+              <td className="py-2 pr-3 text-right tabular-nums">
+                {c.purchases > 0 ? NUM.format(c.purchases) : "—"}
+              </td>
+              <td className="py-2 pr-3 text-right tabular-nums">
+                {c.cpa !== null ? fmtKrw(c.cpa) : "—"}
+              </td>
+              <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">{formatBudget(c)}</td>
+              <td className="py-2 pr-3 text-right tabular-nums">{fmtKrw(c.spend)}</td>
+              <td className="py-2 pr-3 text-right tabular-nums">{fmtPct(c.roas, 1)}</td>
+              <td className="py-2 pr-3 text-right tabular-nums">{fmtPct(c.ctr, 1)}</td>
+              <td className="py-2 pr-3 text-right tabular-nums">
+                {c.frequency !== null ? c.frequency.toFixed(1) : "—"}
+              </td>
+              <td className="py-2 pr-3 text-right tabular-nums">{fmtPct(c.cvr, 1)}</td>
+              <td className="py-2 text-right tabular-nums">
+                {c.cpm !== null ? fmtKrw(c.cpm) : "—"}
+              </td>
             </tr>
           ))}
         </tbody>

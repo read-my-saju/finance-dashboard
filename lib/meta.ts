@@ -29,6 +29,22 @@ export type MetaInsightRow = {
   ctr: number | null;      // %
   cpc: number | null;      // KRW
   cpm: number | null;      // KRW
+  // 광고 운영 핵심 KPI — Meta insights actions/action_values 에서 파생.
+  // purchases: action_type === "purchase" 의 value 합.
+  // purchaseValue: action_type === "purchase" 의 action_values value 합 (광고비 통화).
+  purchases: number;
+  purchaseValue: number;
+  // reach / frequency: Meta insights 가 일자별 캠페인 단위로 직접 제공.
+  reach: number;
+  frequency: number | null;
+};
+
+export type MetaCampaignBudget = {
+  campaignId: string;
+  // daily_budget / lifetime_budget 둘 중 하나만 세팅됨 (Meta 규칙).
+  // 광고계정 통화의 minor unit (KRW 는 1=1원). 자릿수 그대로 사용.
+  dailyBudget: number | null;
+  lifetimeBudget: number | null;
 };
 
 export type MetaFetchDebug = {
@@ -138,6 +154,10 @@ function buildInsightsUrl(args: { from: string; until: string; after?: string })
     "ctr",
     "cpc",
     "cpm",
+    "reach",
+    "frequency",
+    "actions",
+    "action_values",
   ].join(",");
 
   const params = new URLSearchParams({
@@ -170,6 +190,23 @@ function nullableNum(v: any): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Meta insights 의 actions/action_values 배열에서 purchase 전환만 합산.
+ * action_type 은 채널마다 다양 (offsite_conversion.fb_pixel_purchase 등) 하므로
+ * 정확히 "purchase" 인 항목과 ".purchase" 로 끝나는 항목을 모두 포함.
+ */
+function sumPurchaseActions(arr: any): number {
+  if (!Array.isArray(arr)) return 0;
+  let total = 0;
+  for (const a of arr) {
+    const type = String(a?.action_type || "");
+    if (type === "purchase" || type.endsWith(".purchase")) {
+      total += parseNum(a?.value);
+    }
+  }
+  return total;
 }
 
 /**
@@ -220,6 +257,10 @@ export async function fetchDailyCampaignInsights(opts: {
         ctr: nullableNum(it.ctr),
         cpc: nullableNum(it.cpc),
         cpm: nullableNum(it.cpm),
+        reach: parseNum(it.reach),
+        frequency: nullableNum(it.frequency),
+        purchases: sumPurchaseActions(it.actions),
+        purchaseValue: sumPurchaseActions(it.action_values),
       });
     }
 
@@ -264,16 +305,25 @@ export function aggregateMetaByDay(
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
+export type CampaignAggregate = {
+  campaignId: string;
+  campaignName: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  reach: number;
+  purchases: number;
+  purchaseValue: number;
+};
+
 /**
  * 캠페인 단위 집계 — 기간 전체 합산. ROAS 표 표시용.
+ *
+ * reach 는 일별 unique user 합 — 기간 reach 와 동일하지 않음 (Meta API 한계).
+ * frequency 는 표시 단계에서 impressions/reach 로 다시 계산.
  */
-export function aggregateMetaByCampaign(
-  rows: MetaInsightRow[],
-): Array<{ campaignId: string; campaignName: string; spend: number; impressions: number; clicks: number }> {
-  const m = new Map<
-    string,
-    { campaignName: string; spend: number; impressions: number; clicks: number }
-  >();
+export function aggregateMetaByCampaign(rows: MetaInsightRow[]): CampaignAggregate[] {
+  const m = new Map<string, Omit<CampaignAggregate, "campaignId">>();
   for (const r of rows) {
     if (!r.campaignId) continue;
     const cur = m.get(r.campaignId) || {
@@ -281,15 +331,84 @@ export function aggregateMetaByCampaign(
       spend: 0,
       impressions: 0,
       clicks: 0,
+      reach: 0,
+      purchases: 0,
+      purchaseValue: 0,
     };
     cur.spend += r.spend;
     cur.impressions += r.impressions;
     cur.clicks += r.clicks;
-    // 최신 캠페인명 유지.
+    cur.reach += r.reach;
+    cur.purchases += r.purchases;
+    cur.purchaseValue += r.purchaseValue;
     if (r.campaignName) cur.campaignName = r.campaignName;
     m.set(r.campaignId, cur);
   }
   return Array.from(m.entries())
     .map(([campaignId, v]) => ({ campaignId, ...v }))
     .sort((a, b) => b.spend - a.spend);
+}
+
+/**
+ * 활성/최근 캠페인의 daily_budget / lifetime_budget 을 한 번에 fetch.
+ *
+ * Meta 는 캠페인 예산을 insights 가 아니라 별도 /campaigns 엔드포인트에서만
+ * 제공한다. campaign_id 1개씩 부르면 N+1 폭발이므로 광고계정 단위로
+ * effective_status 전체 통과시키고 paging cursor 따라가서 한꺼번에 받는다.
+ *
+ * 반환: 캠페인 id → 예산. id 가 응답에 없으면 빈 항목 (UI 에서 "-").
+ */
+export async function fetchCampaignBudgets(): Promise<Map<string, MetaCampaignBudget>> {
+  const fields = ["id", "daily_budget", "lifetime_budget"].join(",");
+  const out = new Map<string, MetaCampaignBudget>();
+
+  const baseParams = new URLSearchParams({
+    access_token: token(),
+    fields,
+    limit: "500",
+    filtering: JSON.stringify([
+      {
+        field: "effective_status",
+        operator: "IN",
+        value: ["ACTIVE", "PAUSED", "DELETED", "ARCHIVED", "IN_PROCESS", "WITH_ISSUES"],
+      },
+    ]),
+  });
+
+  let after: string | undefined;
+  for (let i = 0; i < 50; i++) {
+    const params = new URLSearchParams(baseParams);
+    if (after) params.set("after", after);
+    const url = `${GRAPH}/${apiVersion()}/${adAccountId()}/campaigns?${params.toString()}`;
+
+    let res: Response;
+    try {
+      res = await fetch(url, { method: "GET", cache: "no-store" });
+    } catch (e: any) {
+      throw new MetaApiError(0, `네트워크 오류로 Meta API 호출이 실패했습니다: ${e?.message || e}`, "fetch_failed");
+    }
+    let body: any = null;
+    try { body = await res.json(); } catch { body = null; }
+
+    if (!res.ok) {
+      const user = humanizeMetaError(res.status, body);
+      throw new MetaApiError(res.status, user, `meta_campaigns_status_${res.status}`);
+    }
+
+    const items: any[] = Array.isArray(body?.data) ? body.data : [];
+    for (const it of items) {
+      const id = String(it.id || "");
+      if (!id) continue;
+      out.set(id, {
+        campaignId: id,
+        dailyBudget: nullableNum(it.daily_budget),
+        lifetimeBudget: nullableNum(it.lifetime_budget),
+      });
+    }
+
+    const next = body?.paging?.cursors?.after as string | undefined;
+    if (!body?.paging?.next || !next) break;
+    after = next;
+  }
+  return out;
 }
