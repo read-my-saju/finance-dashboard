@@ -8,12 +8,13 @@
  *   PG수수료(pgFee)          = VAT 제외 매출 × 3.52%
  *   리포트 생성원가          = 결제완료 건수 × 건당원가(결제일별: ~2026-04 250 / 2026-05 266 / 2026-06~ 390)
  *   ROAS                     = 결제매출(VAT 포함) / 광고비 × 100
- *   손익분기 ROAS (BEP)      = 118% (고정)
+ *   손익분기 ROAS (BEP)      = 결제매출(VAT포함) / 손익분기광고비 × 100 (원가구조 기반 동적)
+ *      손익분기광고비          = VAT제외매출 - PG - 리포트원가 (공헌이익 0 이 되는 광고비)
  *   공헌이익                 = 결제매출 - VAT - PG - 리포트원가 - 광고비
  *   마진                     = 공헌이익 / 결제매출 × 100
  *
- * ROAS 는 결제매출(VAT 포함) 기준으로 단일화. BEP 118% 는 약 115~120% 범위에서
- * 사장님이 합의한 운영 기준값. ROAS > 118% 이면 '증액 가능'.
+ * ROAS 는 결제매출(VAT 포함) 기준으로 단일화. BEP 는 원가구조(PG·리포트원가)에서
+ * 자동 산출 — 원가(리포트 단가 등)가 오르면 BEP 도 자동으로 올라간다. ROAS > BEP 이면 '증액 가능'.
  */
 
 export type CalcInput = {
@@ -36,14 +37,14 @@ export type CalcResult = {
   contributionProfit: number;
   contributionMargin: number | null;  // 공헌이익 / 결제매출
   roas: number | null;                // 결제매출(VAT 포함) / 광고비 × 100
-  breakEvenRoas: number;              // BEP 고정 118%
+  breakEvenRoas: number;              // BEP 동적 (원가구조 기반 산출)
   status: "흑자" | "손익분기" | "적자";
   adAdvice: "증액 가능" | "광고비 주의" | "광고비 없음";
 };
 
 export const DEFAULT_PG_FEE_RATE = 0.0352;
 export const DEFAULT_REPORT_COST_PER_UNIT = 250;   // 2026-04 이전 기본 단가
-export const BREAK_EVEN_ROAS = 118;       // 손익분기 ROAS (고정, % 단위)
+export const BREAK_EVEN_ROAS_FALLBACK = 118;  // 매출이 원가(PG+리포트)도 못 덮는 예외 시 fallback (% 단위)
 
 /**
  * 결제일(KST, YYYY-MM-DD) 별 리포트 건당 원가.
@@ -99,11 +100,28 @@ export function calculateContributionMargin(
 
 /**
  * ROAS = 결제매출(VAT 포함) / 광고비 × 100.
- * BEP 118% 와 분모가 다르지만 같은 단위(% of 결제매출)라 직접 비교 가능.
+ * BEP 와 분모가 다르지만 같은 단위(% of 결제매출)라 직접 비교 가능.
  */
 export function calculateRoas(netRevenue: number, adSpend: number): number | null {
   if (adSpend <= 0) return null;
   return (netRevenue / adSpend) * 100;
+}
+
+/**
+ * 손익분기 ROAS = 결제매출(VAT 포함) / 손익분기광고비 × 100.
+ * 손익분기광고비 = VAT제외매출 - PG수수료 - 리포트원가 (공헌이익이 0 이 되는 광고비).
+ * 원가(리포트 단가 등)가 오르면 손익분기광고비가 줄어 BEP 가 자동으로 올라간다.
+ * 매출이 원가도 못 덮는 예외(손익분기광고비 ≤ 0)에서는 fallback 값을 쓴다.
+ */
+export function calculateBreakEvenRoas(
+  netRevenue: number,
+  revenueExVat: number,
+  pgFee: number,
+  reportCost: number,
+): number {
+  const breakEvenAdSpend = revenueExVat - pgFee - reportCost;
+  if (breakEvenAdSpend <= 0) return BREAK_EVEN_ROAS_FALLBACK;
+  return (netRevenue / breakEvenAdSpend) * 100;
 }
 
 export function calc(input: CalcInput): CalcResult {
@@ -118,7 +136,7 @@ export function calc(input: CalcInput): CalcResult {
   const contributionProfit = calculateContributionProfit(revenueExVat, pgFee, reportCost, adSpend);
   const contributionMargin = calculateContributionMargin(contributionProfit, netRevenue);
   const roas = calculateRoas(netRevenue, adSpend);
-  const breakEvenRoas = BREAK_EVEN_ROAS;
+  const breakEvenRoas = calculateBreakEvenRoas(netRevenue, revenueExVat, pgFee, reportCost);
 
   // 상태 판단 — netRevenue 의 0.5% 이내는 손익분기로 간주.
   const tolerance = Math.max(1000, netRevenue * 0.005);

@@ -17,8 +17,8 @@
 
 import type { PortonePayment } from "./portone";
 import {
-  BREAK_EVEN_ROAS,
   calc,
+  calculateBreakEvenRoas,
   calculateContributionMargin,
   calculateContributionProfit,
   calculatePgFee,
@@ -128,7 +128,7 @@ export type DailyProfitRow = {
   contributionProfit: number;
   contributionMargin: number | null;
   roas: number | null;
-  breakEvenRoas: number;     // 고정 118
+  breakEvenRoas: number;     // 동적 (원가구조 기반)
   reportCount: number;
   cancelledAmount: number;   // 참고용 (PortOne 거래취소액)
 };
@@ -194,7 +194,7 @@ export function computeProfit(args: {
       contributionProfit: cp,
       contributionMargin: cm,
       roas,
-      breakEvenRoas: BREAK_EVEN_ROAS,
+      breakEvenRoas: calculateBreakEvenRoas(netRevenue, revenueExVat, pgFee, reportCost),
       reportCount: po.reportCount,
       cancelledAmount: po.cancelledAmount,
     });

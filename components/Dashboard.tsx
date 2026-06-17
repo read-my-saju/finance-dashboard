@@ -253,7 +253,7 @@ export default function Dashboard() {
         <Card>
           <CardHeader
             title="ROAS vs 손익분기 ROAS"
-            badge="BEP 118% · 결제매출 기준"
+            badge="원가구조 BEP · 결제매출 기준"
           />
           <RoasChart rows={daily?.daily ?? []} />
         </Card>
@@ -536,13 +536,13 @@ function RoasKpiCard({ totals }: { totals?: ProfitTotals }) {
         {fmtPct(roas, 1)}
       </div>
       <div className="mt-0.5 text-[11px] text-gray-400">
-        포트원 결제매출(VAT 포함) ÷ 광고비 · 손익분기 118%
+        포트원 결제매출(VAT 포함) ÷ 광고비 · 손익분기 {fmtPct(bep, 1)}
       </div>
       <div className="mt-2 flex items-center justify-between gap-2">
         <span className={`min-w-0 flex-1 text-xs font-medium ${
           diff === null ? "text-gray-400" : above ? "text-emerald-600" : "text-rose-600"
         }`}>
-          {`BEP 118% 대비 ${diff !== null ? (diff >= 0 ? "+" : "") + diff.toFixed(1) + "%p" : "—"}`}
+          {`BEP ${bep.toFixed(0)}% 대비 ${diff !== null ? (diff >= 0 ? "+" : "") + diff.toFixed(1) + "%p" : "—"}`}
         </span>
         <span className={`shrink-0 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none ${
           advice === "증액 가능" ? "border-emerald-200 bg-emerald-50 text-emerald-700"
@@ -643,6 +643,7 @@ function RoasChart({ rows }: { rows: DailyRow[] }) {
     .map((r) => ({
       date: r.date,
       roas: r.roas !== null ? Number(r.roas.toFixed(1)) : null,
+      bep: Number(r.breakEvenRoas.toFixed(1)),
     }));
 
   if (data.length === 0) {
@@ -657,14 +658,8 @@ function RoasChart({ rows }: { rows: DailyRow[] }) {
           <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#9ca3af" }} tickLine={false} axisLine={false} />
           <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} tickLine={false} axisLine={false}
             tickFormatter={(v: number) => `${v.toFixed(0)}%`} />
-          <Tooltip formatter={(v: number) => [`${v.toFixed(1)}%`, "ROAS"]} />
-          <ReferenceLine
-            y={118}
-            stroke="#fb7185"
-            strokeWidth={1.5}
-            strokeDasharray="6 4"
-            label={{ value: "BEP 118% (결제매출 기준)", position: "insideTopRight", fill: "#fb7185", fontSize: 11 }}
-          />
+          <Tooltip formatter={(v: number, name: string) => [`${v.toFixed(1)}%`, name]} />
+          <Line type="monotone" dataKey="bep" stroke="#fb7185" strokeWidth={1.5} strokeDasharray="6 4" dot={false} name="손익분기 ROAS" />
           <Line type="monotone" dataKey="roas" stroke="#0f766e" strokeWidth={2.5} dot={false} name="ROAS" />
         </LineChart>
       </ResponsiveContainer>
@@ -759,9 +754,9 @@ function InsightPanel({
 
   if (totals.adSpend > 0 && totals.roas !== null) {
     if (totals.adAdvice === "증액 가능") {
-      lines.push({ tone: "good", text: `ROAS ${fmtPct(totals.roas, 1)} > BEP 118% — 광고 증액 여력.` });
+      lines.push({ tone: "good", text: `ROAS ${fmtPct(totals.roas, 1)} > BEP ${fmtPct(totals.breakEvenRoas, 1)} — 광고 증액 여력.` });
     } else {
-      lines.push({ tone: "warn", text: `ROAS ${fmtPct(totals.roas, 1)} ≤ BEP 118% — 광고비 효율 점검 필요.` });
+      lines.push({ tone: "warn", text: `ROAS ${fmtPct(totals.roas, 1)} ≤ BEP ${fmtPct(totals.breakEvenRoas, 1)} — 광고비 효율 점검 필요.` });
     }
   } else if (totals.adSpend <= 0) {
     lines.push({ tone: "info", text: "광고비 집행 없음 — ROAS 계산 불가." });
@@ -849,7 +844,7 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
           })}
         </tbody>
       </table>
-      <p className="mt-3 text-[11px] text-gray-400">※ BEP 118% 미만 행은 옅은 적색 배경 · 당일(미완료) 은 회색</p>
+      <p className="mt-3 text-[11px] text-gray-400">※ 손익분기 ROAS 미만 행은 옅은 적색 배경 · 당일(미완료) 은 회색</p>
     </div>
   );
 }
