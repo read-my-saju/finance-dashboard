@@ -28,6 +28,7 @@ import {
   calculateVat,
   DEFAULT_PG_FEE_RATE,
   DEFAULT_REPORT_COST_PER_UNIT,
+  reportCostPerUnitForDate,
   type CalcResult,
 } from "./calc";
 
@@ -166,6 +167,7 @@ export function computeProfit(args: {
   let totalReport = 0;
   let totalAdSpend = 0;
   let totalCancelled = 0;
+  let totalReportCost = 0;   // 일별(날짜별 단가) reportCost 합산 — 기간 합계 정합성용
 
   for (const date of Array.from(allDates).sort()) {
     const po = portoneByDay.get(date) || { netRevenue: 0, reportCount: 0, cancelledAmount: 0 };
@@ -175,7 +177,8 @@ export function computeProfit(args: {
     const vat = calculateVat(netRevenue);
     const revenueExVat = calculateRevenueExVat(netRevenue);
     const pgFee = calculatePgFee(revenueExVat, pgFeeRate);
-    const reportCost = calculateReportCost(po.reportCount, reportCostPerUnit);
+    const perUnit = reportCostPerUnitForDate(date, reportCostPerUnit);
+    const reportCost = calculateReportCost(po.reportCount, perUnit);
     const cp = calculateContributionProfit(revenueExVat, pgFee, reportCost, adSpend);
     const cm = calculateContributionMargin(cp, netRevenue);
     const roas = calculateRoas(netRevenue, adSpend);
@@ -200,6 +203,7 @@ export function computeProfit(args: {
     totalReport += po.reportCount;
     totalAdSpend += adSpend;
     totalCancelled += po.cancelledAmount;
+    totalReportCost += reportCost;
   }
 
   // 기간 합계: calc() 한 번으로 계산 (단일 진실).
@@ -209,6 +213,7 @@ export function computeProfit(args: {
     reportCount: totalReport,
     pgFeeRate,
     reportCostPerUnit,
+    reportCostOverride: totalReportCost,   // 날짜별 단가 합산값으로 기간 reportCost 고정
   });
 
   return {

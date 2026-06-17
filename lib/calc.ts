@@ -6,7 +6,7 @@
  *   VAT                      = 결제매출 / 11
  *   VAT 제외 매출(exVat)     = 결제매출 - VAT
  *   PG수수료(pgFee)          = VAT 제외 매출 × 3.52%
- *   리포트 생성원가          = 결제완료 건수 × 250
+ *   리포트 생성원가          = 결제완료 건수 × 건당원가(결제일별: ~2026-04 250 / 2026-05 266 / 2026-06~ 390)
  *   ROAS                     = 결제매출(VAT 포함) / 광고비 × 100
  *   손익분기 ROAS (BEP)      = 118% (고정)
  *   공헌이익                 = 결제매출 - VAT - PG - 리포트원가 - 광고비
@@ -22,6 +22,7 @@ export type CalcInput = {
   reportCount: number;      // 결제완료 건수
   pgFeeRate: number;        // 0.0352 같은 비율
   reportCostPerUnit: number; // 250 같은 단가
+  reportCostOverride?: number; // 날짜별 단가로 합산한 reportCost 직접 지정 (있으면 reportCount×perUnit 대신 사용)
 };
 
 export type CalcResult = {
@@ -41,8 +42,27 @@ export type CalcResult = {
 };
 
 export const DEFAULT_PG_FEE_RATE = 0.0352;
-export const DEFAULT_REPORT_COST_PER_UNIT = 250;
+export const DEFAULT_REPORT_COST_PER_UNIT = 250;   // 2026-04 이전 기본 단가
 export const BREAK_EVEN_ROAS = 118;       // 손익분기 ROAS (고정, % 단위)
+
+/**
+ * 결제일(KST, YYYY-MM-DD) 별 리포트 건당 원가.
+ * Claude API 실원가 반영 (사장님 2026-06 확정):
+ *   ~2026-04  : base (기본 250)
+ *   2026-05    : 266  (5월 실원가)
+ *   2026-06~   : 390  (Opus 전환 후 실원가)
+ */
+export const REPORT_COST_PER_UNIT_2026_05 = 266;
+export const REPORT_COST_PER_UNIT_2026_06 = 390;
+
+export function reportCostPerUnitForDate(
+  date: string,
+  base: number = DEFAULT_REPORT_COST_PER_UNIT,
+): number {
+  if (date >= "2026-06-01") return REPORT_COST_PER_UNIT_2026_06;
+  if (date >= "2026-05-01") return REPORT_COST_PER_UNIT_2026_05;
+  return base;
+}
 
 export function calculateVat(netRevenue: number): number {
   return netRevenue / 11;
@@ -91,7 +111,7 @@ export function calc(input: CalcInput): CalcResult {
   const vat = calculateVat(netRevenue);
   const revenueExVat = calculateRevenueExVat(netRevenue);
   const pgFee = calculatePgFee(revenueExVat, input.pgFeeRate);
-  const reportCost = calculateReportCost(input.reportCount, input.reportCostPerUnit);
+  const reportCost = input.reportCostOverride ?? calculateReportCost(input.reportCount, input.reportCostPerUnit);
   const reportCostRate = revenueExVat > 0 ? reportCost / revenueExVat : 0;
   const adSpend = input.adSpend;
 
