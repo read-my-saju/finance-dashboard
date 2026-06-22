@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { aggregate } from "@/lib/aggregate";
-import { fetchAllPaidPayments } from "@/lib/portone";
+import { fetchCombinedPayments } from "@/lib/payments-source";
 import { isAuthed } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -10,13 +10,6 @@ export const runtime = "nodejs";
 type CacheEntry = { key: string; expiresAt: number; payload: any };
 let cache: CacheEntry | null = null;
 const TTL_MS = 5 * 60 * 1000;
-
-function isoStartOfDay(s: string): string {
-  return new Date(s + "T00:00:00+09:00").toISOString();
-}
-function isoEndOfDay(s: string): string {
-  return new Date(s + "T23:59:59+09:00").toISOString();
-}
 
 export async function GET(req: NextRequest) {
   if (!(await isAuthed())) {
@@ -35,24 +28,26 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ...cache.payload, cached: true });
   }
 
-  try {
-    const fromISO = isoStartOfDay(from);
-    const untilISO = isoEndOfDay(until);
-    const { items: payments, debug: fetchDebug } = await fetchAllPaidPayments({
-      fromISO,
-      untilISO,
-    });
-    const summary = aggregate(payments, { from, until });
+  // PortOne(과거) + Toss(2026-06-19~) 합산. 한쪽 실패해도 다른 쪽은 보여준다.
+  const { payments, warnings, portoneDebug, tossDebug, bothFailed } =
+    await fetchCombinedPayments({ from, until });
 
-    const payload: any = { ...summary };
-    if (debug) payload._debug = fetchDebug;
-    else cache = { key: cacheKey, expiresAt: now + TTL_MS, payload };
-
-    return NextResponse.json({ ...payload, cached: false });
-  } catch (e: any) {
+  if (bothFailed) {
     return NextResponse.json(
-      { error: "fetch_failed", detail: String(e?.message || e) },
+      { error: "fetch_failed", detail: warnings.join(" / ") },
       { status: 502 },
     );
   }
+
+  const summary = aggregate(payments, { from, until });
+
+  const payload: any = { ...summary };
+  if (warnings.length) payload.warnings = warnings;
+  if (debug) {
+    payload._debug = { portone: portoneDebug, toss: tossDebug };
+  } else {
+    cache = { key: cacheKey, expiresAt: now + TTL_MS, payload };
+  }
+
+  return NextResponse.json({ ...payload, cached: false });
 }

@@ -6,7 +6,8 @@
  * Vercel serverless cold start 시에는 비어있다 (정상 — 첫 요청 cost).
  * warm container 내 5분간 유효.
  */
-import { fetchAllPaidPayments, type PortonePayment } from "./portone";
+import { type PortonePayment } from "./portone";
+import { fetchCombinedPayments } from "./payments-source";
 import {
   aggregateMetaByCampaign,
   aggregateMetaByDay,
@@ -31,13 +32,6 @@ type CacheEntry = {
 
 let cache: CacheEntry | null = null;
 
-function isoStartOfDay(s: string): string {
-  return new Date(s + "T00:00:00+09:00").toISOString();
-}
-function isoEndOfDay(s: string): string {
-  return new Date(s + "T23:59:59+09:00").toISOString();
-}
-
 export type LoadOptions = {
   from: string;
   until: string;
@@ -51,10 +45,12 @@ async function loadRawData(opts: LoadOptions): Promise<CacheEntry> {
     return cache;
   }
 
-  const { items: payments } = await fetchAllPaidPayments({
-    fromISO: isoStartOfDay(opts.from),
-    untilISO: isoEndOfDay(opts.until),
-  });
+  // PortOne(과거) + Toss(2026-06-19~) 합산. 양쪽 모두 실패할 때만 throw.
+  const combined = await fetchCombinedPayments({ from: opts.from, until: opts.until });
+  if (combined.bothFailed) {
+    throw new Error(combined.warnings.join(" / ") || "결제 조회 실패");
+  }
+  const payments = combined.payments;
 
   // Meta 광고 데이터: rolling 7일 incremental sync 를 거친 영속 저장소에서 로드.
   // KV 가 비활성이면 자동으로 [from, until] 전체 재조회 (fallback).

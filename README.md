@@ -1,16 +1,18 @@
 # ReadMySaju 결제 · 광고 손익 대시보드
 
-PortOne V2 결제 데이터와 Meta (Facebook/Instagram) 광고비를 **하나의 화면**에서
+PortOne · 토스페이먼츠 결제 데이터와 Meta (Facebook/Instagram) 광고비를 **하나의 화면**에서
 보고, 일별 **기여이익 / ROAS / 손익분기 ROAS** 를 자동 계산해 광고 의사결정
 ("증액 가능" vs "광고비 주의") 까지 제시하는 별도 웹사이트입니다.
 
-기존 `admin.readmysaju.com` 의 재무 대시보드와 분리되어 있고, Google Play /
-인앱 결제는 표시하지 않습니다 (PortOne 경유 결제만).
+2026-06-19 결제 PG 를 PortOne → 토스페이먼츠로 전환. 과거(PortOne)와 신규(토스)
+매출을 **둘 다 조회해 합산**한다 (두 키 중 설정된 것만 집계). 기존
+`admin.readmysaju.com` 의 재무 대시보드와 분리되어 있고, Google Play / 인앱
+결제는 표시하지 않습니다 (PG 경유 결제만).
 
 - 기술: **Next.js 14** (App Router) + TypeScript + Tailwind + Recharts
 - 호스팅: **Vercel Hobby (무료)**
 - 인증: **비밀번호 1개** (HMAC 서명 cookie 30일)
-- 데이터: PortOne V2 + Meta Marketing API → 5분 in-memory cache → 새로고침 버튼으로 즉시 무효화
+- 데이터: PortOne + 토스페이먼츠 + Meta Marketing API → 5분 in-memory cache → 새로고침 버튼으로 즉시 무효화
 - 계산 공식: **`lib/calc.ts` 서버 유틸 단독 사용** (UI 에서 재계산 금지)
 
 ## 한눈에 보는 손익 공식
@@ -47,8 +49,9 @@ KPI 카드에 표시됩니다.
 
 | Name | Value |
 |---|---|
-| `PORTONE_API_KEY` | PortOne 콘솔 → **결제 연동 → V2 API → API Secret** 에서 발급한 긴 random 문자열 |
+| `PORTONE_API_KEY` | PortOne 콘솔 → **결제 연동 → V2 API → API Secret** 에서 발급한 긴 random 문자열 (과거 매출용) |
 | `PORTONE_STORE_ID` | 같은 화면의 `store-xxxxxxxx` 형식 Store ID |
+| `TOSS_SECRET_KEY` | 토스페이먼츠 개발자센터 → **API 키 → API 개별 연동 키**의 시크릿 키 (실매출 `live_sk_...`, 테스트 `test_sk_...`). 2026-06-19~ 매출 |
 | `META_ACCESS_TOKEN` | 페이스북 비즈니스 설정 → 시스템 사용자 → 토큰 생성. `ads_read` 권한 필수, long-lived 권장 |
 | `META_AD_ACCOUNT_ID` | 광고관리자 좌측 상단 `act_숫자` 그대로 (또는 숫자만) |
 | `DASHBOARD_PASSWORD` | 본인이 정한 비밀번호 (예: 16자리 영문/숫자) |
