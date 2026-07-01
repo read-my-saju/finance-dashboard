@@ -135,17 +135,28 @@ function tossMethodToPortone(method?: string): { type?: string; provider?: strin
 /**
  * 토스 거래 → PortonePayment 형태 변환 (기존 aggregate 재사용).
  * status 매핑: DONE→PAID, CANCELED/PARTIAL_CANCELED→CANCELLED.
- * (부분취소는 사주 디지털상품 특성상 드물어 전액취소로 근사. 실데이터 확인 후 정밀화.)
+ *
+ * 안전 개선 (무회귀):
+ *   - currency 를 실어보내 aggregate/profit 의 KRW 필터가 토스 해외(USD) 결제를
+ *     국내 매출에서 분리하도록 한다 (기존엔 currency 유실로 USD 도 KRW 취급).
+ *   - 음수 amount 는 status 와 무관하게 취소로 간주 (음수는 절대 매출이 아님).
+ *
+ * TODO(진단 후): 토스 /v1/transactions 는 취소를 별도 행으로 주므로, paymentKey 로
+ *   묶어 부분취소를 정밀 반영하는 게 정확하다. 다만 취소행 부호 규칙이 문서에
+ *   불명확해, /api/toss-raw 덤프로 실데이터 검증 후 그룹 집계로 전환한다.
+ *   (현재는 부분취소를 전액취소로 근사 — 사주 디지털상품 특성상 드묾.)
  */
 export function tossToPortonePayments(txns: TossTransaction[]): PortonePayment[] {
   const out: PortonePayment[] = [];
   for (const t of txns) {
     const status = (t.status || "").toUpperCase();
-    const amount = Math.abs(Number(t.amount) || 0);
+    const rawAmount = Number(t.amount) || 0;
+    const amount = Math.abs(rawAmount);
     if (amount <= 0) continue;
 
     let mapped: string;
-    if (status === "DONE") mapped = "PAID";
+    if (rawAmount < 0) mapped = "CANCELLED"; // 음수 = 환불/취소 (매출 아님)
+    else if (status === "DONE") mapped = "PAID";
     else if (status === "CANCELED" || status === "PARTIAL_CANCELED") mapped = "CANCELLED";
     else continue; // READY / IN_PROGRESS / WAITING_FOR_DEPOSIT 등 미완료 제외
 
@@ -161,6 +172,7 @@ export function tossToPortonePayments(txns: TossTransaction[]): PortonePayment[]
       },
       channel: { pgProvider: "TOSS", type: "" },
       method: tossMethodToPortone(t.method),
+      currency: (t.currency || "KRW").toUpperCase(),
     } as PortonePayment);
   }
   return out;

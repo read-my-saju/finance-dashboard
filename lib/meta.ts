@@ -14,8 +14,13 @@
  *   - access token 은 어떤 응답/로그에도 포함되지 않도록 마스킹
  *   - 권한/만료 오류는 사람이 이해할 한국어 메시지로 변환
  *
- * spend 단위: Meta 는 광고계정 통화 (KRW) 의 정수 문자열을 반환. Number 로 변환.
+ * spend 단위: Meta 는 광고계정 통화의 문자열을 반환. 계정이 USD (Read My Saju_USD)
+ *   면 spend/purchaseValue 는 달러(major unit), daily/lifetime_budget 은 센트(minor unit).
+ *   → downstream(profit/aggregate)이 광고비를 KRW 로 가정하므로, 여기서 계정 통화를
+ *     자동 감지해 USD 면 원화로 환산한 뒤 흘려보낸다 (lib/fx.ts). KRW 계정이면 무변환.
  */
+
+import { getUsdKrwRate, getUsdKrwRates } from "./fx";
 
 const GRAPH = "https://graph.facebook.com";
 
@@ -42,7 +47,7 @@ export type MetaInsightRow = {
 export type MetaCampaignBudget = {
   campaignId: string;
   // daily_budget / lifetime_budget 둘 중 하나만 세팅됨 (Meta 규칙).
-  // 광고계정 통화의 minor unit (KRW 는 1=1원). 자릿수 그대로 사용.
+  // KRW 로 환산된 값 (USD 계정은 센트→원 변환 완료. budgetToKrw 참조).
   dailyBudget: number | null;
   lifetimeBudget: number | null;
 };
@@ -98,6 +103,53 @@ function adAccountId(): string {
 
 function apiVersion(): string {
   return process.env.META_API_VERSION || "v21.0";
+}
+
+// 광고계정 통화 (USD/KRW ...). 한 warm 컨테이너 안에서 재조회 방지.
+let cachedCurrency: string | null = null;
+
+/**
+ * 광고계정의 결제 통화 조회. `GET /{ver}/act_xxx?fields=currency`.
+ * 실패해도 insights 를 막지 않도록 caller 가 흡수한다.
+ */
+export async function fetchAccountCurrency(): Promise<string> {
+  const params = new URLSearchParams({ access_token: token(), fields: "currency,name" });
+  const url = `${GRAPH}/${apiVersion()}/${adAccountId()}?${params.toString()}`;
+  let res: Response;
+  try {
+    res = await fetch(url, { method: "GET", cache: "no-store" });
+  } catch (e: any) {
+    throw new MetaApiError(0, `네트워크 오류로 Meta API 호출이 실패했습니다: ${e?.message || e}`, "fetch_failed");
+  }
+  let body: any = null;
+  try { body = await res.json(); } catch { body = null; }
+  if (!res.ok) {
+    throw new MetaApiError(res.status, humanizeMetaError(res.status, body), `meta_account_status_${res.status}`);
+  }
+  return String(body?.currency || "").toUpperCase();
+}
+
+/**
+ * 환산에 쓸 계정 통화 결정.
+ *   1. env META_ACCOUNT_CURRENCY 가 있으면 그 값 (배포 결정론용 override).
+ *   2. 없으면 Meta API 로 자동 감지.
+ *   3. 감지 실패 시 "USD" 로 가정 (이 계정이 Read My Saju_USD 이므로 안전한 기본값).
+ * KRW 계정이면 "KRW" 를 돌려주고 호출부가 환산을 skip 한다.
+ */
+async function resolveAccountCurrency(): Promise<string> {
+  if (cachedCurrency) return cachedCurrency;
+  const override = (process.env.META_ACCOUNT_CURRENCY || "").toUpperCase();
+  if (override) {
+    cachedCurrency = override;
+    return override;
+  }
+  try {
+    const c = await fetchAccountCurrency();
+    cachedCurrency = c || "USD";
+  } catch {
+    cachedCurrency = "USD";
+  }
+  return cachedCurrency;
 }
 
 /**
@@ -193,6 +245,16 @@ function nullableNum(v: any): number | null {
 }
 
 /**
+ * 캠페인 예산(daily/lifetime_budget)을 KRW 로 환산.
+ * 예산은 계정 통화의 minor unit: KRW 는 1=1원(자릿수 그대로), USD 는 센트(/100 후 환율).
+ */
+function budgetToKrw(minor: number | null, currency: string, rate: number): number | null {
+  if (minor === null) return null;
+  if (currency === "KRW") return minor;
+  return (minor / 100) * rate;
+}
+
+/**
  * Meta insights 의 actions/action_values 배열에서 purchase 전환만 합산.
  * action_type 은 채널마다 다양 (offsite_conversion.fb_pixel_purchase 등) 하므로
  * 정확히 "purchase" 인 항목과 ".purchase" 로 끝나는 항목을 모두 포함.
@@ -280,6 +342,21 @@ export async function fetchDailyCampaignInsights(opts: {
     after = next;
   }
 
+  // 계정 통화가 KRW 가 아니면 (USD) 광고비·전환값을 일자별 환율로 원화 환산.
+  // spend/purchaseValue/cpc/cpm 은 major unit(달러)이라 rate 를 그대로 곱한다.
+  // downstream 은 KRW 를 가정하므로 여기서 통일 → 저장소(KV)에도 KRW 로 영속.
+  const currency = await resolveAccountCurrency();
+  if (currency !== "KRW") {
+    const rates = await getUsdKrwRates(rows.map((r) => r.date));
+    for (const r of rows) {
+      const rate = rates.get(r.date) ?? (await getUsdKrwRate(r.date));
+      r.spend = r.spend * rate;
+      r.purchaseValue = r.purchaseValue * rate;
+      if (r.cpc !== null) r.cpc = r.cpc * rate;
+      if (r.cpm !== null) r.cpm = r.cpm * rate;
+    }
+  }
+
   debug.totalItems = rows.length;
   return { rows, debug };
 }
@@ -362,6 +439,10 @@ export async function fetchCampaignBudgets(): Promise<Map<string, MetaCampaignBu
   const fields = ["id", "daily_budget", "lifetime_budget"].join(",");
   const out = new Map<string, MetaCampaignBudget>();
 
+  // 예산은 정적 메타데이터라 일자 개념이 없어 최신 환율로 환산.
+  const currency = await resolveAccountCurrency();
+  const rate = currency !== "KRW" ? await getUsdKrwRate("") : 1;
+
   const baseParams = new URLSearchParams({
     access_token: token(),
     fields,
@@ -401,8 +482,8 @@ export async function fetchCampaignBudgets(): Promise<Map<string, MetaCampaignBu
       if (!id) continue;
       out.set(id, {
         campaignId: id,
-        dailyBudget: nullableNum(it.daily_budget),
-        lifetimeBudget: nullableNum(it.lifetime_budget),
+        dailyBudget: budgetToKrw(nullableNum(it.daily_budget), currency, rate),
+        lifetimeBudget: budgetToKrw(nullableNum(it.lifetime_budget), currency, rate),
       });
     }
 

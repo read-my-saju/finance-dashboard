@@ -28,6 +28,8 @@ export type PortonePayment = {
     pgProvider?: string;
     type?: string;
   };
+  // 결제 통화 (KRW/USD ...). 토스 해외결제·국내결제 구분 및 KRW 필터에 사용.
+  currency?: string;
   cancellations?: Array<{ amount?: number; cancelledAt?: string; reason?: string }>;
 };
 
