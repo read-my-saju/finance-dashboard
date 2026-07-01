@@ -132,47 +132,84 @@ function tossMethodToPortone(method?: string): { type?: string; provider?: strin
   return { type: "" };
 }
 
+type TossGroup = {
+  id: string;
+  approved: number;   // 승인(DONE) amount 합
+  canceled: number;   // 취소(CANCELED/PARTIAL_CANCELED) amount 합
+  currency: string;
+  method?: string;
+  at?: string;        // 승인 시각 (가장 이른 DONE 거래 기준 = 결제일)
+};
+
 /**
- * 토스 거래 → PortonePayment 형태 변환 (기존 aggregate 재사용).
- * status 매핑: DONE→PAID, CANCELED/PARTIAL_CANCELED→CANCELLED.
+ * 토스 거래 → PortonePayment 형태 변환 (paymentKey 단위 순승인 계산).
  *
- * 안전 개선 (무회귀):
- *   - currency 를 실어보내 aggregate/profit 의 KRW 필터가 토스 해외(USD) 결제를
- *     국내 매출에서 분리하도록 한다 (기존엔 currency 유실로 USD 도 KRW 취급).
- *   - 음수 amount 는 status 와 무관하게 취소로 간주 (음수는 절대 매출이 아님).
+ * 토스 /v1/transactions 는 한 결제의 **승인과 취소를 별도 행**으로 준다.
+ * 실데이터(2026-07-01) 검증으로 확인한 규칙:
+ *   - 취소 행: status=CANCELED, amount 는 **양수**(음수 아님), 원 승인행과 **같은 paymentKey**.
+ *   - 승인 행: 취소돼도 status=DONE 유지 (별도 CANCELED 행이 추가될 뿐).
+ * → paymentKey 로 묶어 approved(DONE 합) - canceled(CANCELED 합) = 순매출.
+ *   이렇게 해야 환불된 결제가 매출에서 정확히 빠진다(기존엔 취소를 안 빼 과대계상).
  *
- * TODO(진단 후): 토스 /v1/transactions 는 취소를 별도 행으로 주므로, paymentKey 로
- *   묶어 부분취소를 정밀 반영하는 게 정확하다. 다만 취소행 부호 규칙이 문서에
- *   불명확해, /api/toss-raw 덤프로 실데이터 검증 후 그룹 집계로 전환한다.
- *   (현재는 부분취소를 전액취소로 근사 — 사주 디지털상품 특성상 드묾.)
+ * 변환 결과는 aggregate.ts / profit.ts 의 PAID·CANCELLED·PARTIAL_CANCELLED 정의에
+ * 그대로 태워 순매출 = 승인 - 취소 로 잡힌다.
  */
 export function tossToPortonePayments(txns: TossTransaction[]): PortonePayment[] {
-  const out: PortonePayment[] = [];
+  const groups = new Map<string, TossGroup>();
+
   for (const t of txns) {
     const status = (t.status || "").toUpperCase();
-    const rawAmount = Number(t.amount) || 0;
-    const amount = Math.abs(rawAmount);
+    const key = t.paymentKey || t.orderId || t.transactionKey || "";
+    if (!key) continue;
+    const amount = Math.abs(Number(t.amount) || 0);
     if (amount <= 0) continue;
 
-    let mapped: string;
-    if (rawAmount < 0) mapped = "CANCELLED"; // 음수 = 환불/취소 (매출 아님)
-    else if (status === "DONE") mapped = "PAID";
-    else if (status === "CANCELED" || status === "PARTIAL_CANCELED") mapped = "CANCELLED";
-    else continue; // READY / IN_PROGRESS / WAITING_FOR_DEPOSIT 등 미완료 제외
+    const g =
+      groups.get(key) ||
+      ({
+        id: key,
+        approved: 0,
+        canceled: 0,
+        currency: (t.currency || "").toUpperCase(),
+        method: t.method,
+        at: undefined,
+      } as TossGroup);
+
+    if (status === "DONE") {
+      g.approved += amount;
+      if (t.transactionAt && (!g.at || t.transactionAt < g.at)) g.at = t.transactionAt;
+    } else if (status === "CANCELED" || status === "PARTIAL_CANCELED") {
+      g.canceled += amount;
+    } else {
+      continue; // READY / IN_PROGRESS / WAITING_FOR_DEPOSIT / ABORTED / EXPIRED 등 미완료 제외
+    }
+    if (!g.currency && t.currency) g.currency = t.currency.toUpperCase();
+    if (!g.method && t.method) g.method = t.method;
+    groups.set(key, g);
+  }
+
+  const out: PortonePayment[] = [];
+  for (const g of groups.values()) {
+    if (g.approved <= 0) continue; // 조회범위에 취소 행만 있는 경우 등 → 매출 아님
+    const canceled = Math.min(g.canceled, g.approved); // 과다취소 방지
+    let status: string;
+    if (canceled <= 0) status = "PAID";
+    else if (canceled >= g.approved) status = "CANCELLED";
+    else status = "PARTIAL_CANCELLED";
 
     out.push({
-      id: t.transactionKey || t.paymentKey || "",
-      status: mapped,
-      paidAt: t.transactionAt,
-      requestedAt: t.transactionAt,
+      id: g.id,
+      status,
+      paidAt: g.at,
+      requestedAt: g.at,
       amount: {
-        total: amount,
-        paid: amount,
-        cancelled: mapped === "CANCELLED" ? amount : 0,
+        total: g.approved,
+        paid: g.approved - canceled,
+        cancelled: canceled,
       },
       channel: { pgProvider: "TOSS", type: "" },
-      method: tossMethodToPortone(t.method),
-      currency: (t.currency || "KRW").toUpperCase(),
+      method: tossMethodToPortone(g.method),
+      currency: g.currency || "KRW",
     } as PortonePayment);
   }
   return out;
