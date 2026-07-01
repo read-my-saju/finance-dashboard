@@ -68,7 +68,7 @@ function weekStart(d: Date): string {
  *   - method.type 이 PaymentMethodEasyPay 이고 provider 매핑
  *   - 그 외 type → 적절 라벨
  */
-function methodLabel(payment: AnyPayment): string {
+export function methodLabel(payment: AnyPayment): string {
   const m = payment.method || {};
   const provider = (m.provider || "").toUpperCase();
   const type = (m.type || "").toUpperCase();

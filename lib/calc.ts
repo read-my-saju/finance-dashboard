@@ -24,6 +24,7 @@ export type CalcInput = {
   pgFeeRate: number;        // 0.0352 같은 비율
   reportCostPerUnit: number; // 250 같은 단가
   reportCostOverride?: number; // 날짜별 단가로 합산한 reportCost 직접 지정 (있으면 reportCount×perUnit 대신 사용)
+  pgFeeOverride?: number;      // 결제수단별로 합산한 PG수수료 직접 지정 (있으면 revenueExVat×rate 대신 사용)
 };
 
 export type CalcResult = {
@@ -44,6 +45,26 @@ export type CalcResult = {
 
 export const DEFAULT_PG_FEE_RATE = 0.0352;
 export const DEFAULT_REPORT_COST_PER_UNIT = 250;   // 2026-04 이전 기본 단가
+
+/**
+ * 결제수단별 PG 수수료율 (사장님 2026-07 전달, 결제수수료 자체 · 부가세 미가산).
+ *   이체류(계좌이체·가상계좌): 2.0%
+ *   네이버페이: 3.3% (카드 3.2% + 인증피 0.1%)
+ *   그 외(국내카드·카카오페이·토스페이·페이코·삼성페이·애플페이·휴대폰 등): 3.2%
+ *
+ * 결제수단 라벨은 aggregate.ts 의 methodLabel() 결과를 그대로 사용.
+ * ⚠️ 토스 거래조회는 간편결제 제공사를 안 줘서 토스 간편결제는 3.2%(기본)로 잡힌다
+ *    (네이버 구분 불가). PortOne 결제는 provider 로 네이버 구분 가능.
+ */
+export const PG_FEE_RATE_TRANSFER = 0.020;
+export const PG_FEE_RATE_NAVER = 0.033;
+export const PG_FEE_RATE_DEFAULT = 0.032;
+
+export function pgFeeRateForMethod(label: string): number {
+  if (label === "계좌이체" || label === "가상계좌") return PG_FEE_RATE_TRANSFER;
+  if (label === "Npay") return PG_FEE_RATE_NAVER;
+  return PG_FEE_RATE_DEFAULT;
+}
 export const BREAK_EVEN_ROAS_FALLBACK = 118;  // 매출이 원가(PG+리포트)도 못 덮는 예외 시 fallback (% 단위)
 
 /**
@@ -128,7 +149,7 @@ export function calc(input: CalcInput): CalcResult {
   const netRevenue = Math.max(0, input.netRevenue);
   const vat = calculateVat(netRevenue);
   const revenueExVat = calculateRevenueExVat(netRevenue);
-  const pgFee = calculatePgFee(revenueExVat, input.pgFeeRate);
+  const pgFee = input.pgFeeOverride ?? calculatePgFee(revenueExVat, input.pgFeeRate);
   const reportCost = input.reportCostOverride ?? calculateReportCost(input.reportCount, input.reportCostPerUnit);
   const reportCostRate = revenueExVat > 0 ? reportCost / revenueExVat : 0;
   const adSpend = input.adSpend;
