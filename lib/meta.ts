@@ -91,6 +91,10 @@ function token(): string {
   return t;
 }
 
+function actId(raw: string): string {
+  return raw.startsWith("act_") ? raw : `act_${raw}`;
+}
+
 function adAccountId(): string {
   const a = process.env.META_AD_ACCOUNT_ID;
   if (!a) {
@@ -98,23 +102,59 @@ function adAccountId(): string {
       "META_AD_ACCOUNT_ID 가 설정되지 않았습니다. `act_숫자` 형식 (예: act_123456789) 으로 환경변수에 추가해주세요.",
     );
   }
-  return a.startsWith("act_") ? a : `act_${a}`;
+  return actId(a);
 }
 
 function apiVersion(): string {
   return process.env.META_API_VERSION || "v21.0";
 }
 
-// 광고계정 통화 (USD/KRW ...). 한 warm 컨테이너 안에서 재조회 방지.
-let cachedCurrency: string | null = null;
+/**
+ * 광고계정 설정. 날짜(전환일) 기준으로 이전/신규 두 계정을 갈라 쓰기 위해
+ * 계정별로 id·token·통화 override·fallback 을 묶는다.
+ */
+type MetaAccountCfg = {
+  id: string;              // act_xxxx
+  tok: string;             // access token
+  currencyOverride: string; // env override (없으면 자동감지)
+  currencyFallback: string; // 자동감지 실패 시 기본값
+};
+
+/** 신규(기본) 계정 = META_AD_ACCOUNT_ID (현재 USD). */
+function mainAccount(): MetaAccountCfg {
+  return {
+    id: adAccountId(),
+    tok: token(),
+    currencyOverride: (process.env.META_ACCOUNT_CURRENCY || "").toUpperCase(),
+    currencyFallback: "USD",
+  };
+}
+
+/**
+ * 이전 계정 = META_AD_ACCOUNT_ID_PREV (전환일 이전 광고비 소스, 보통 KRW).
+ * 미설정이면 null → 단일 계정 동작.
+ */
+function prevAccount(): MetaAccountCfg | null {
+  const raw = process.env.META_AD_ACCOUNT_ID_PREV;
+  if (!raw) return null;
+  return {
+    id: actId(raw),
+    tok: process.env.META_ACCESS_TOKEN_PREV || token(),
+    currencyOverride: (process.env.META_ACCOUNT_CURRENCY_PREV || "").toUpperCase(),
+    currencyFallback: "KRW",
+  };
+}
+
+// 계정 통화 캐시 (accountId → currency). warm 컨테이너 재조회 방지.
+const currencyCache = new Map<string, string>();
 
 /**
  * 광고계정의 결제 통화 조회. `GET /{ver}/act_xxx?fields=currency`.
  * 실패해도 insights 를 막지 않도록 caller 가 흡수한다.
  */
-export async function fetchAccountCurrency(): Promise<string> {
-  const params = new URLSearchParams({ access_token: token(), fields: "currency,name" });
-  const url = `${GRAPH}/${apiVersion()}/${adAccountId()}?${params.toString()}`;
+export async function fetchAccountCurrency(accountId: string, tok: string): Promise<string> {
+  const params = new URLSearchParams({ access_token: tok, fields: "currency,name" });
+  const url = `${GRAPH}/${apiVersion()}/${accountId}?${params.toString()}`;
   let res: Response;
   try {
     res = await fetch(url, { method: "GET", cache: "no-store" });
@@ -130,26 +170,31 @@ export async function fetchAccountCurrency(): Promise<string> {
 }
 
 /**
- * 환산에 쓸 계정 통화 결정.
- *   1. env META_ACCOUNT_CURRENCY 가 있으면 그 값 (배포 결정론용 override).
- *   2. 없으면 Meta API 로 자동 감지.
- *   3. 감지 실패 시 "USD" 로 가정 (이 계정이 Read My Saju_USD 이므로 안전한 기본값).
- * KRW 계정이면 "KRW" 를 돌려주고 호출부가 환산을 skip 한다.
+ * 계정 통화 결정 (계정별): override → Meta API 자동감지 → fallback.
+ * KRW 면 환산 skip, USD 등이면 호출부가 원화 환산한다.
  */
-async function resolveAccountCurrency(): Promise<string> {
-  if (cachedCurrency) return cachedCurrency;
-  const override = (process.env.META_ACCOUNT_CURRENCY || "").toUpperCase();
-  if (override) {
-    cachedCurrency = override;
-    return override;
+async function resolveAccountCurrency(acc: MetaAccountCfg): Promise<string> {
+  const cached = currencyCache.get(acc.id);
+  if (cached) return cached;
+  let c = acc.currencyOverride;
+  if (!c) {
+    try {
+      c = await fetchAccountCurrency(acc.id, acc.tok);
+    } catch {
+      c = "";
+    }
   }
-  try {
-    const c = await fetchAccountCurrency();
-    cachedCurrency = c || "USD";
-  } catch {
-    cachedCurrency = "USD";
-  }
-  return cachedCurrency;
+  if (!c) c = acc.currencyFallback;
+  currencyCache.set(acc.id, c);
+  return c;
+}
+
+/** YYYY-MM-DD 하루 전. */
+function dayBeforeYmd(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() - 1);
+  return dt.toISOString().slice(0, 10);
 }
 
 /**
@@ -194,7 +239,13 @@ function humanizeMetaError(status: number, body: any): string {
   return `Meta API 호출 실패 (status ${status}): ${msg || "알 수 없는 오류"}`;
 }
 
-function buildInsightsUrl(args: { from: string; until: string; after?: string }): string {
+function buildInsightsUrl(args: {
+  accountId: string;
+  tok: string;
+  from: string;
+  until: string;
+  after?: string;
+}): string {
   const fields = [
     "date_start",
     "date_stop",
@@ -213,7 +264,7 @@ function buildInsightsUrl(args: { from: string; until: string; after?: string })
   ].join(",");
 
   const params = new URLSearchParams({
-    access_token: token(),
+    access_token: args.tok,
     fields,
     level: "campaign",
     time_increment: "1",
@@ -229,7 +280,7 @@ function buildInsightsUrl(args: { from: string; until: string; after?: string })
     limit: "500",
   });
   if (args.after) params.set("after", args.after);
-  return `${GRAPH}/${apiVersion()}/${adAccountId()}/insights?${params.toString()}`;
+  return `${GRAPH}/${apiVersion()}/${args.accountId}/insights?${params.toString()}`;
 }
 
 function parseNum(v: any): number {
@@ -272,19 +323,19 @@ function sumPurchaseActions(arr: any): number {
 }
 
 /**
- * 기간 내 일별 campaign 광고 인사이트 전량 fetch.
+ * 한 광고계정에서 기간 내 일별 campaign 인사이트 전량 fetch (+ 통화 환산).
  * from/until: YYYY-MM-DD (Meta time_range 와 동일 포맷)
  */
-export async function fetchDailyCampaignInsights(opts: {
-  from: string;
-  until: string;
-}): Promise<{ rows: MetaInsightRow[]; debug: MetaFetchDebug }> {
+async function fetchInsightsForAccount(
+  acc: MetaAccountCfg,
+  opts: { from: string; until: string },
+): Promise<{ rows: MetaInsightRow[]; debug: MetaFetchDebug }> {
   const debug: MetaFetchDebug = { attempts: [], totalItems: 0, stopReason: "loop_end" };
   const rows: MetaInsightRow[] = [];
 
   let after: string | undefined;
   for (let i = 0; i < 50; i++) {
-    const url = buildInsightsUrl({ from: opts.from, until: opts.until, after });
+    const url = buildInsightsUrl({ accountId: acc.id, tok: acc.tok, from: opts.from, until: opts.until, after });
     let res: Response;
     try {
       res = await fetch(url, { method: "GET", cache: "no-store" });
@@ -345,7 +396,7 @@ export async function fetchDailyCampaignInsights(opts: {
   // 계정 통화가 KRW 가 아니면 (USD) 광고비·전환값을 일자별 환율로 원화 환산.
   // spend/purchaseValue/cpc/cpm 은 major unit(달러)이라 rate 를 그대로 곱한다.
   // downstream 은 KRW 를 가정하므로 여기서 통일 → 저장소(KV)에도 KRW 로 영속.
-  const currency = await resolveAccountCurrency();
+  const currency = await resolveAccountCurrency(acc);
   if (currency !== "KRW") {
     const rates = await getUsdKrwRates(rows.map((r) => r.date));
     for (const r of rows) {
@@ -355,6 +406,50 @@ export async function fetchDailyCampaignInsights(opts: {
       if (r.cpc !== null) r.cpc = r.cpc * rate;
       if (r.cpm !== null) r.cpm = r.cpm * rate;
     }
+  }
+
+  debug.totalItems = rows.length;
+  return { rows, debug };
+}
+
+/**
+ * 기간 내 일별 campaign 인사이트 fetch. 전환일(META_ACCOUNT_CUTOVER) 기준으로
+ * 이전 광고비는 이전 계정(META_AD_ACCOUNT_ID_PREV), 이후는 신규 계정에서 가져와 합친다.
+ * 이전 계정/전환일 미설정 시 신규 계정 단일 동작 (기존과 동일).
+ */
+export async function fetchDailyCampaignInsights(opts: {
+  from: string;
+  until: string;
+}): Promise<{ rows: MetaInsightRow[]; debug: MetaFetchDebug }> {
+  const main = mainAccount();
+  const prev = prevAccount();
+  const cutover = (process.env.META_ACCOUNT_CUTOVER || "").trim();
+
+  // 단일 계정 (이전 계정 또는 전환일 미설정).
+  if (!prev || !cutover) {
+    return fetchInsightsForAccount(main, opts);
+  }
+
+  const debug: MetaFetchDebug = { attempts: [], totalItems: 0, stopReason: "split_by_cutover" };
+  const rows: MetaInsightRow[] = [];
+
+  // 전환일 이전 [from, cutover-1] → 이전 계정.
+  if (opts.from < cutover) {
+    const prevLast = dayBeforeYmd(cutover);
+    const prevUntil = opts.until < prevLast ? opts.until : prevLast;
+    if (opts.from <= prevUntil) {
+      const r = await fetchInsightsForAccount(prev, { from: opts.from, until: prevUntil });
+      rows.push(...r.rows);
+      debug.attempts.push(...r.debug.attempts);
+    }
+  }
+
+  // 전환일 이후 [cutover, until] → 신규 계정.
+  if (opts.until >= cutover) {
+    const newFrom = opts.from > cutover ? opts.from : cutover;
+    const r = await fetchInsightsForAccount(main, { from: newFrom, until: opts.until });
+    rows.push(...r.rows);
+    debug.attempts.push(...r.debug.attempts);
   }
 
   debug.totalItems = rows.length;
@@ -439,12 +534,13 @@ export async function fetchCampaignBudgets(): Promise<Map<string, MetaCampaignBu
   const fields = ["id", "daily_budget", "lifetime_budget"].join(",");
   const out = new Map<string, MetaCampaignBudget>();
 
-  // 예산은 정적 메타데이터라 일자 개념이 없어 최신 환율로 환산.
-  const currency = await resolveAccountCurrency();
+  // 예산은 현재 진행 캠페인 = 신규(기본) 계정 기준. 정적 메타데이터라 최신 환율로 환산.
+  const main = mainAccount();
+  const currency = await resolveAccountCurrency(main);
   const rate = currency !== "KRW" ? await getUsdKrwRate("") : 1;
 
   const baseParams = new URLSearchParams({
-    access_token: token(),
+    access_token: main.tok,
     fields,
     limit: "500",
     filtering: JSON.stringify([
