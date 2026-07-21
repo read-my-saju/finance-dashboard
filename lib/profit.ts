@@ -26,7 +26,7 @@ import {
   calculateRevenueExVat,
   calculateRoas,
   calculateVat,
-  pgFeeRateForMethod,
+  pgFeeRateForMethodOnDate,
   DEFAULT_PG_FEE_RATE,
   DEFAULT_REPORT_COST_PER_UNIT,
   reportCostPerUnitForDate,
@@ -96,11 +96,11 @@ function aggregatePortoneByDay(
     m.set(date, cur);
   }
 
-  // 순매출(VAT 제외) × 결제수단별 요율 = 그 결제의 PG수수료.
-  function feeFor(payment: AnyPayment, netAmount: number): number {
+  // 순매출(VAT 제외) × 요율(결제일 기준: ~6/18 3.52% / 6/19~ 결제수단별) = 그 결제의 PG수수료.
+  function feeFor(payment: AnyPayment, netAmount: number, date: string): number {
     if (netAmount <= 0) return 0;
     const exVat = calculateRevenueExVat(netAmount);
-    return exVat * pgFeeRateForMethod(methodLabel(payment as any));
+    return exVat * pgFeeRateForMethodOnDate(methodLabel(payment as any), date);
   }
 
   for (const raw of payments) {
@@ -120,13 +120,13 @@ function aggregatePortoneByDay(
     const date = ymd(at);
 
     if (status === "PAID") {
-      bump(date, total, 1, 0, feeFor(p, total));
+      bump(date, total, 1, 0, feeFor(p, total, date));
     } else if (status === "CANCELLED") {
       // PortOne 콘솔 순거래액은 CANCELLED 제외. 일별 통계에도 미반영.
       bump(date, 0, 0, total, 0);
     } else if (status === "PARTIAL_CANCELLED") {
       const net = total - cancelledAmt;
-      bump(date, net, 1, cancelledAmt, feeFor(p, net));
+      bump(date, net, 1, cancelledAmt, feeFor(p, net, date));
     }
   }
 

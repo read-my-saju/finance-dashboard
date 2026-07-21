@@ -5,8 +5,8 @@
  *   결제매출(netRevenue)     = PortOne 콘솔 순거래액 (VAT 포함, 단일 진실)
  *   VAT                      = 결제매출 / 11
  *   VAT 제외 매출(exVat)     = 결제매출 - VAT
- *   PG수수료(pgFee)          = VAT 제외 매출 × 3.52%
- *   리포트 생성원가          = 결제완료 건수 × 건당원가(결제일별: ~2026-04 250 / 2026-05 266 / 2026-06~ 390)
+ *   PG수수료(pgFee)          = VAT 제외 매출 × 요율(결제일별: ~6/18 3.52% 일괄 / 6/19~ 결제수단별)
+ *   리포트 생성원가          = 결제완료 건수 × 건당원가(결제일별: ~2026-04 250 / 2026-05 266 / 2026-06 390 / 2026-07~ 870)
  *   ROAS                     = 결제매출(VAT 포함) / 광고비 × 100
  *   손익분기 ROAS (BEP)      = 결제매출(VAT포함) / 손익분기광고비 × 100 (원가구조 기반 동적)
  *      손익분기광고비          = VAT제외매출 - PG - 리포트원가 (공헌이익 0 이 되는 광고비)
@@ -48,6 +48,7 @@ export const DEFAULT_REPORT_COST_PER_UNIT = 250;   // 2026-04 이전 기본 단�
 
 /**
  * 결제수단별 PG 수수료율 (사장님 2026-07 전달, 결제수수료 자체 · 부가세 미가산).
+ * 토스페이먼츠 전환일(2026-06-19) 이후 결제에만 적용 — 이전(PortOne)은 3.52% 일괄.
  *   이체류(계좌이체·가상계좌): 2.0%
  *   네이버페이: 3.3% (카드 3.2% + 인증피 0.1%)
  *   그 외(국내카드·카카오페이·토스페이·페이코·삼성페이·애플페이·휴대폰 등): 3.2%
@@ -59,28 +60,41 @@ export const DEFAULT_REPORT_COST_PER_UNIT = 250;   // 2026-04 이전 기본 단�
 export const PG_FEE_RATE_TRANSFER = 0.020;
 export const PG_FEE_RATE_NAVER = 0.033;
 export const PG_FEE_RATE_DEFAULT = 0.032;
+export const PG_FEE_CUTOVER = "2026-06-19";   // 토스페이먼츠 전환일 (이 날부터 결제수단별 요율)
 
 export function pgFeeRateForMethod(label: string): number {
   if (label === "계좌이체" || label === "가상계좌") return PG_FEE_RATE_TRANSFER;
   if (label === "Npay") return PG_FEE_RATE_NAVER;
   return PG_FEE_RATE_DEFAULT;
 }
+
+/**
+ * 결제일(KST, YYYY-MM-DD) 기준 PG 수수료율.
+ * 6/19 이전 결제는 PortOne 계약 요율 3.52% 일괄, 이후는 결제수단별 요율.
+ */
+export function pgFeeRateForMethodOnDate(label: string, date: string): number {
+  if (date < PG_FEE_CUTOVER) return DEFAULT_PG_FEE_RATE;
+  return pgFeeRateForMethod(label);
+}
 export const BREAK_EVEN_ROAS_FALLBACK = 118;  // 매출이 원가(PG+리포트)도 못 덮는 예외 시 fallback (% 단위)
 
 /**
  * 결제일(KST, YYYY-MM-DD) 별 리포트 건당 원가.
- * Claude API 실원가 반영 (사장님 2026-06 확정):
+ * Claude API 실원가 반영 (사장님 2026-06 확정, 7월 단가는 2026-07-22 확정):
  *   ~2026-04  : base (기본 250)
  *   2026-05    : 266  (5월 실원가)
- *   2026-06~   : 390  (Opus 전환 후 실원가)
+ *   2026-06    : 390  (Opus 전환 후 실원가)
+ *   2026-07~   : 870  (7월 실원가)
  */
 export const REPORT_COST_PER_UNIT_2026_05 = 266;
 export const REPORT_COST_PER_UNIT_2026_06 = 390;
+export const REPORT_COST_PER_UNIT_2026_07 = 870;
 
 export function reportCostPerUnitForDate(
   date: string,
   base: number = DEFAULT_REPORT_COST_PER_UNIT,
 ): number {
+  if (date >= "2026-07-01") return REPORT_COST_PER_UNIT_2026_07;
   if (date >= "2026-06-01") return REPORT_COST_PER_UNIT_2026_06;
   if (date >= "2026-05-01") return REPORT_COST_PER_UNIT_2026_05;
   return base;
