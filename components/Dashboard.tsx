@@ -1298,6 +1298,7 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
         <thead>
           <tr className="text-left text-xs text-gray-500 dark:text-zinc-400">
             <th className="py-2 pr-3 font-medium">날짜</th>
+            <th className="py-2 pr-3 text-right font-medium">건수</th>
             <th className="py-2 pr-3 text-right font-medium">순매출</th>
             <th className="py-2 pr-3 text-right font-medium">광고비</th>
             <th className="py-2 pr-3 text-right font-medium">공헌이익</th>
@@ -1317,6 +1318,7 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
                 <td className="py-2 pr-3 font-mono text-xs">
                   {r.date}{isToday && <span className="ml-1 text-[10px]">(당일)</span>}
                 </td>
+                <td className="py-2 pr-3 text-right tabular-nums">{NUM.format(r.reportCount)}</td>
                 <td className="py-2 pr-3 text-right tabular-nums">{fmtKrw(r.netRevenue)}</td>
                 <td className="py-2 pr-3 text-right tabular-nums">{fmtKrw(r.adSpend)}</td>
                 <td className={`py-2 pr-3 text-right tabular-nums font-medium ${isToday ? "" : profitColor}`}>
