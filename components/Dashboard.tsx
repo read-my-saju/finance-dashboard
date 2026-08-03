@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { calculateBreakEvenRoas, calculateRoas } from "@/lib/calc";
+import { BREAK_EVEN_ROAS_FALLBACK, calculateBreakEvenRoas, calculateRoas } from "@/lib/calc";
 import {
+  Area,
   Bar,
   BarChart,
   CartesianGrid,
@@ -10,8 +11,6 @@ import {
   ComposedChart,
   Line,
   LineChart,
-  Pie,
-  PieChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -153,14 +152,14 @@ type ChartPalette = {
   axis: string;
   refline: string;
   barNet: string;
-  barAd: string;
+  netArea: string;
+  adArea: string;
   profit: string;
   today: string;
   bep: string;
   spark: string;
   hourly: string;
-  donut: [string, string, string, string];
-  donutStroke: string;
+  costSegments: [string, string, string, string]; // 광고비 · VAT · PG수수료 · 리포트원가
   tooltipBg: string;
   tooltipBorder: string;
   tooltipLabel: string;
@@ -171,14 +170,14 @@ const LIGHT_PAL: ChartPalette = {
   axis: "#9ca3af",
   refline: "#9ca3af",
   barNet: "#e5e7eb",
-  barAd: "#fda4af",
+  netArea: "#3b82f6",
+  adArea: "#f97316",
   profit: "#0f766e",
   today: "#9ca3af",
   bep: "#fb7185",
   spark: "#FF6F0F",
   hourly: "#FF6F0F",
-  donut: ["#94a3b8", "#a78bfa", "#fbbf24", "#fb7185"],
-  donutStroke: "#ffffff",
+  costSegments: ["#f97316", "#a78bfa", "#fbbf24", "#94a3b8"],
   tooltipBg: "#ffffff",
   tooltipBorder: "#e5e7eb",
   tooltipLabel: "#6b7280",
@@ -189,14 +188,14 @@ const DARK_PAL: ChartPalette = {
   axis: "#71717a",
   refline: "#71717a",
   barNet: "#3f3f46",
-  barAd: "#b0455c",
+  netArea: "#60a5fa",
+  adArea: "#fb923c",
   profit: "#2dd4bf",
   today: "#71717a",
   bep: "#fb7185",
   spark: "#FF8534",
   hourly: "#FF8534",
-  donut: ["#64748b", "#a78bfa", "#fbbf24", "#fb7185"],
-  donutStroke: "#18181b",
+  costSegments: ["#fb923c", "#c4b5fd", "#fcd34d", "#a1a1aa"],
   tooltipBg: "#18181b",
   tooltipBorder: "#3f3f46",
   tooltipLabel: "#a1a1aa",
@@ -432,7 +431,7 @@ export default function Dashboard() {
         pal={pal}
       />
 
-      {/* ── 2. 중단 차트 3개 ───────────────────────────────────────────── */}
+      {/* ── 2. 순매출 vs 광고비 + 기간 요약 ─────────────────────────────── */}
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader
@@ -446,18 +445,23 @@ export default function Dashboard() {
           <DailyProfitChart rows={daily?.daily ?? []} pal={pal} />
         </Card>
         <Card>
+          <CardHeader title="기간 요약" badge={`${from} ~ ${until}`} />
+          <PeriodSummaryCard totals={summary?.totals} daily={daily?.daily ?? []} sourceNetRevenue={sourceNetRevenue} />
+        </Card>
+      </div>
+
+      {/* ── 3. ROAS · 비용 구조 · 인사이트 ──────────────────────────────── */}
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card>
           <CardHeader
             title="ROAS vs 손익분기 ROAS"
             badge="원가구조 BEP · 결제매출 기준"
           />
           <RoasChart rows={daily?.daily ?? []} pal={pal} />
         </Card>
-      </div>
-
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader title="비용 구조" />
-          <CostDonut totals={summary?.totals} pal={pal} />
+          <CostStructureBar totals={summary?.totals} pal={pal} />
         </Card>
         <Card>
           <CardHeader title="인사이트" />
@@ -477,8 +481,13 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* ── 3. 하단 상세 (접기 가능) ────────────────────────────────────── */}
+      {/* ── 4. 하단 상세 (접기 가능) ────────────────────────────────────── */}
       <div className="mt-8 space-y-4">
+        <Card>
+          <CardHeader title="캠페인 TOP 10" badge="지출액 기준" />
+          <CampaignTop10 campaigns={campaigns?.campaigns ?? []} bep={summary?.totals.breakEvenRoas ?? BREAK_EVEN_ROAS_FALLBACK} />
+        </Card>
+
         <CollapsibleCard title="일별 손익 표" defaultOpen={false}>
           <DailyTable rows={daily?.daily ?? []} loading={loading} />
         </CollapsibleCard>
@@ -591,7 +600,11 @@ function Banner({ tone, title, body }: { tone: "error" | "warn"; title: string; 
 }
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <div className={`rounded-2xl border border-gray-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 ${className}`}>{children}</div>;
+  return (
+    <div className={`rounded-xl border border-gray-200 bg-white p-5 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700 ${className}`}>
+      {children}
+    </div>
+  );
 }
 
 function CardHeader({ title, badge }: { title: string; badge?: string }) {
@@ -607,7 +620,7 @@ function CollapsibleCard({
   title, subtitle, defaultOpen, children,
 }: { title: string; subtitle?: string; defaultOpen?: boolean; children: React.ReactNode }) {
   return (
-    <details open={defaultOpen} className="group rounded-2xl border border-gray-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+    <details open={defaultOpen} className="group rounded-xl border border-gray-200 bg-white transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700">
       <summary className="flex cursor-pointer items-center justify-between px-5 py-4 text-sm font-semibold text-gray-900 dark:text-zinc-100">
         <div className="flex items-center gap-2">
           <span>{title}</span>
@@ -699,16 +712,20 @@ function KpiStrip({
   );
 }
 
-function DeltaText({ delta, deltaInverse }: { delta: number | null; deltaInverse?: boolean }) {
+function DeltaBadge({ delta, deltaInverse }: { delta: number | null; deltaInverse?: boolean }) {
   const positive = delta !== null && delta >= 0;
   const goodColor = deltaInverse ? !positive : positive;
-  const arrowColor = delta === null
-    ? "text-gray-400 dark:text-zinc-500"
-    : goodColor ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400";
+  const pillCls = delta === null
+    ? "bg-gray-100 text-gray-400 dark:bg-zinc-800 dark:text-zinc-500"
+    : goodColor
+      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+      : "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400";
   return (
-    <div className={`text-xs font-medium ${arrowColor}`} title="직전 동기간(같은 길이의 바로 앞 구간) 일평균 대비">
-      {delta === null ? "—" : `${positive ? "▲" : "▼"} ${Math.abs(delta).toFixed(1)}%`}
-      <span className="ml-1 text-[10px] font-normal text-gray-400 dark:text-zinc-500">vs 이전 기간</span>
+    <div className="flex items-center gap-1.5" title="직전 동기간(같은 길이의 바로 앞 구간) 일평균 대비">
+      <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${pillCls}`}>
+        {delta === null ? "—" : `${positive ? "▲" : "▼"} ${Math.abs(delta).toFixed(1)}%`}
+      </span>
+      <span className="text-[10px] font-normal text-gray-400 dark:text-zinc-500">vs 이전 기간</span>
     </div>
   );
 }
@@ -727,16 +744,16 @@ function KpiCard({
   const sparkPoints = sparkData.map((v, i) => ({ x: i, y: v }));
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="rounded-xl border border-gray-200 bg-white p-4 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700">
       <div className="text-xs font-medium text-gray-500 dark:text-zinc-400">{label}</div>
-      <div className="mt-1.5 text-2xl font-bold tracking-tight text-gray-900 dark:text-zinc-100">
+      <div className="mt-1.5 text-2xl font-bold tabular-nums tracking-tight text-gray-900 dark:text-zinc-100">
         {fmtKrw(value)}
       </div>
       {subText && (
         <div className="mt-0.5 text-[11px] text-gray-400 dark:text-zinc-500">{subText}</div>
       )}
-      <div className="mt-2 flex items-center justify-between">
-        <DeltaText delta={delta} deltaInverse={deltaInverse} />
+      <div className="mt-2.5 flex items-center justify-between">
+        <DeltaBadge delta={delta} deltaInverse={deltaInverse} />
         <div className="h-6 w-20">
           {sparkData.length >= 2 && (
             <ResponsiveContainer>
@@ -759,9 +776,9 @@ function RoasKpiCard({ totals }: { totals?: ProfitTotals }) {
   const advice = totals?.adAdvice ?? "—";
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="rounded-xl border border-gray-200 bg-white p-4 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700">
       <div className="text-xs font-medium text-gray-500 dark:text-zinc-400">ROAS</div>
-      <div className="mt-1.5 text-2xl font-bold tracking-tight text-gray-900 dark:text-zinc-100">
+      <div className="mt-1.5 text-2xl font-bold tabular-nums tracking-tight text-gray-900 dark:text-zinc-100">
         {fmtPct(roas, 1)}
       </div>
       <div className="mt-0.5 text-[11px] text-gray-400 dark:text-zinc-500">
@@ -790,13 +807,13 @@ function ProfitKpiCard({ totals, delta }: { totals?: ProfitTotals; delta: number
   const positive = cp >= 0;
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="rounded-xl border border-gray-200 bg-white p-4 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700">
       <div className="text-xs font-medium text-gray-500 dark:text-zinc-400">공헌이익</div>
-      <div className={`mt-1.5 text-2xl font-bold tracking-tight ${positive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+      <div className={`mt-1.5 text-2xl font-bold tabular-nums tracking-tight ${positive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
         {fmtKrw(cp)}
       </div>
       <div className="mt-0.5">
-        <DeltaText delta={delta} />
+        <DeltaBadge delta={delta} />
       </div>
       <div className="mt-2 flex items-center justify-between">
         <span className="text-xs font-medium text-gray-500 dark:text-zinc-400">
@@ -845,6 +862,16 @@ function DailyProfitChart({ rows, pal }: { rows: DailyRow[]; pal: ChartPalette }
     <div style={{ width: "100%", height: 320 }}>
       <ResponsiveContainer>
         <ComposedChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+          <defs>
+            <linearGradient id="dailyNetGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={pal.netArea} stopOpacity={0.45} />
+              <stop offset="95%" stopColor={pal.netArea} stopOpacity={0.03} />
+            </linearGradient>
+            <linearGradient id="dailyAdGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={pal.adArea} stopOpacity={0.5} />
+              <stop offset="95%" stopColor={pal.adArea} stopOpacity={0.03} />
+            </linearGradient>
+          </defs>
           <CartesianGrid stroke={pal.grid} strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="date" tick={{ fontSize: 10, fill: pal.axis }} tickLine={false} axisLine={false} />
           <YAxis tick={{ fontSize: 11, fill: pal.axis }} tickLine={false} axisLine={false}
@@ -863,8 +890,8 @@ function DailyProfitChart({ rows, pal }: { rows: DailyRow[]; pal: ChartPalette }
             {...tooltipStyle(pal)}
           />
           <ReferenceLine y={0} stroke={pal.refline} strokeWidth={1} />
-          <Bar dataKey="netRevenue" fill={pal.barNet} name="순매출" />
-          <Bar dataKey="adSpend" fill={pal.barAd} name="광고비" />
+          <Area type="monotone" dataKey="netRevenue" stroke={pal.netArea} strokeWidth={2} fill="url(#dailyNetGradient)" name="순매출" />
+          <Area type="monotone" dataKey="adSpend" stroke={pal.adArea} strokeWidth={2} fill="url(#dailyAdGradient)" name="광고비" />
           <Line type="monotone" dataKey="profitFinished" stroke={pal.profit} strokeWidth={2.5} dot={false} name="공헌이익" />
           {!weekly && (
             <Line type="monotone" dataKey="profitToday" stroke={pal.today} strokeWidth={2} strokeDasharray="4 4" dot={{ r: 3, fill: pal.today }} name="당일" />
@@ -968,34 +995,30 @@ function HourlyChart({
   );
 }
 
-function CostDonut({ totals, pal }: { totals?: ProfitTotals; pal: ChartPalette }) {
+function CostStructureBar({ totals, pal }: { totals?: ProfitTotals; pal: ChartPalette }) {
   if (!totals || totals.netRevenue <= 0) {
     return <p className="py-12 text-center text-sm text-gray-400 dark:text-zinc-500">데이터 없음</p>;
   }
   const items = [
-    { label: "VAT", value: totals.vat, color: pal.donut[0] },
-    { label: "PG 수수료", value: totals.pgFee, color: pal.donut[1] },
-    { label: "리포트 생성원가", value: totals.reportCost, color: pal.donut[2] },
-    { label: "광고비", value: totals.adSpend, color: pal.donut[3] },
+    { label: "광고비", value: totals.adSpend, color: pal.costSegments[0] },
+    { label: "VAT", value: totals.vat, color: pal.costSegments[1] },
+    { label: "PG 수수료", value: totals.pgFee, color: pal.costSegments[2] },
+    { label: "리포트 생성원가", value: totals.reportCost, color: pal.costSegments[3] },
   ];
   const totalCost = items.reduce((a, b) => a + b.value, 0);
   const profitPositive = totals.contributionProfit >= 0;
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      <div className="relative h-44 w-full">
-        <ResponsiveContainer>
-          <PieChart>
-            <Pie data={items} dataKey="value" nameKey="label" innerRadius={50} outerRadius={75} stroke={pal.donutStroke} strokeWidth={2}>
-              {items.map((it) => <Cell key={it.label} fill={it.color} />)}
-            </Pie>
-            <Tooltip formatter={(v: number, n: string) => [fmtKrw(v), n]} {...tooltipStyle(pal)} />
-          </PieChart>
-        </ResponsiveContainer>
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span className="text-[10px] text-gray-400 dark:text-zinc-500">총 비용</span>
-          <span className="text-sm font-semibold text-gray-900 dark:text-zinc-100">{fmtKrw(totalCost)}</span>
-        </div>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-gray-500 dark:text-zinc-400">총 비용</span>
+        <span className="font-semibold tabular-nums text-gray-900 dark:text-zinc-100">{fmtKrw(totalCost)}</span>
+      </div>
+      <div className="flex h-3 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-zinc-800">
+        {items.filter((it) => it.value > 0).map((it) => {
+          const pct = totalCost > 0 ? (it.value / totalCost) * 100 : 0;
+          return <div key={it.label} style={{ width: `${pct}%`, background: it.color }} title={`${it.label} ${pct.toFixed(1)}%`} />;
+        })}
       </div>
       <div className="space-y-2 text-xs">
         {items.map((it) => {
@@ -1012,12 +1035,61 @@ function CostDonut({ totals, pal }: { totals?: ProfitTotals; pal: ChartPalette }
         <div className="mt-2 border-t border-gray-100 pt-2 dark:border-zinc-800">
           <div className="flex items-center justify-between">
             <span className="text-gray-500 dark:text-zinc-400">공헌이익</span>
-            <span className={`font-semibold ${profitPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+            <span className={`font-semibold tabular-nums ${profitPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
               {fmtKrw(totals.contributionProfit)}
             </span>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 기간 요약 카드
+// ────────────────────────────────────────────────────────────────────────────
+
+function PeriodSummaryCard({
+  totals, daily, sourceNetRevenue,
+}: {
+  totals?: ProfitTotals;
+  daily: DailyRow[];
+  sourceNetRevenue: number;
+}) {
+  if (!totals) {
+    return <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">데이터 없음</p>;
+  }
+  const today = todayStr();
+  const finished = daily.filter((d) => d.date < today);
+  const avgProfit = finished.length > 0
+    ? finished.reduce((a, d) => a + d.contributionProfit, 0) / finished.length
+    : 0;
+  const bestDay = finished.length > 0
+    ? finished.reduce((m, d) => (d.contributionProfit > m.contributionProfit ? d : m), finished[0])
+    : null;
+
+  const rows: Array<{ label: string; value: string; tone?: "good" | "warn" }> = [
+    { label: "기간", value: `${daily.length}일` },
+    { label: "결제매출", value: fmtKrw(sourceNetRevenue) },
+    { label: "광고비", value: fmtKrw(totals.adSpend) },
+    { label: "공헌이익", value: fmtKrw(totals.contributionProfit), tone: totals.contributionProfit >= 0 ? "good" : "warn" },
+    { label: "일평균 공헌이익", value: fmtKrw(avgProfit) },
+    { label: "최고 이익일", value: bestDay ? `${bestDay.date} · ${fmtKrw(bestDay.contributionProfit)}` : "—" },
+    { label: "ROAS", value: fmtPct(totals.roas, 1) },
+  ];
+
+  return (
+    <div className="divide-y divide-gray-100 dark:divide-zinc-800">
+      {rows.map((r) => (
+        <div key={r.label} className="flex items-center justify-between py-2 text-sm first:pt-0 last:pb-0">
+          <span className="text-gray-500 dark:text-zinc-400">{r.label}</span>
+          <span className={`tabular-nums font-semibold ${
+            r.tone === "good" ? "text-emerald-600 dark:text-emerald-400"
+            : r.tone === "warn" ? "text-rose-600 dark:text-rose-400"
+            : "text-gray-900 dark:text-zinc-100"
+          }`}>{r.value}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1146,6 +1218,43 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
         </tbody>
       </table>
       <p className="mt-3 text-[11px] text-gray-400 dark:text-zinc-500">※ 손익분기 ROAS 미만 행은 옅은 적색 배경 · 당일(미완료) 은 회색</p>
+    </div>
+  );
+}
+
+function CampaignTop10({ campaigns, bep }: { campaigns: CampaignRow[]; bep: number }) {
+  if (campaigns.length === 0) {
+    return <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">광고 캠페인 데이터가 없습니다.</p>;
+  }
+  const top10 = [...campaigns].sort((a, b) => b.spend - a.spend).slice(0, 10);
+  const maxSpend = Math.max(...top10.map((c) => c.spend), 1);
+
+  return (
+    <div className="space-y-3">
+      {top10.map((c) => {
+        const pct = (c.spend / maxSpend) * 100;
+        const aboveBep = c.roas !== null && c.roas >= bep;
+        return (
+          <div key={c.campaignId} className="flex items-center gap-3">
+            <div className="w-28 shrink-0 truncate text-xs text-gray-600 dark:text-zinc-300 sm:w-40" title={c.campaignName}>
+              {c.campaignName}
+            </div>
+            <div className="h-2 flex-1 rounded-full bg-gray-100 dark:bg-zinc-800">
+              <div className="h-2 rounded-full bg-portone" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="w-24 shrink-0 text-right text-xs tabular-nums text-gray-900 dark:text-zinc-100">
+              {fmtKrw(c.spend)}
+            </div>
+            <span className={`w-16 shrink-0 rounded-full px-1.5 py-0.5 text-center text-[11px] font-medium tabular-nums ${
+              c.roas === null ? "bg-gray-100 text-gray-400 dark:bg-zinc-800 dark:text-zinc-500"
+              : aboveBep ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+              : "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400"
+            }`}>
+              {fmtPct(c.roas, 0)}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
