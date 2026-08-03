@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BREAK_EVEN_ROAS_FALLBACK, calculateBreakEvenRoas, calculateRoas } from "@/lib/calc";
 import {
-  Area,
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
   ComposedChart,
+  LabelList,
   Line,
   LineChart,
   ReferenceLine,
@@ -152,8 +152,9 @@ type ChartPalette = {
   axis: string;
   refline: string;
   barNet: string;
-  netArea: string;
-  adArea: string;
+  barRevenue: string;
+  barAd: string;
+  roas: string;
   profit: string;
   today: string;
   bep: string;
@@ -170,8 +171,9 @@ const LIGHT_PAL: ChartPalette = {
   axis: "#9ca3af",
   refline: "#9ca3af",
   barNet: "#e5e7eb",
-  netArea: "#3b82f6",
-  adArea: "#f97316",
+  barRevenue: "#3b82f6",
+  barAd: "#22c55e",
+  roas: "#8b5cf6",
   profit: "#0f766e",
   today: "#9ca3af",
   bep: "#fb7185",
@@ -188,8 +190,9 @@ const DARK_PAL: ChartPalette = {
   axis: "#71717a",
   refline: "#71717a",
   barNet: "#3f3f46",
-  netArea: "#60a5fa",
-  adArea: "#fb923c",
+  barRevenue: "#60a5fa",
+  barAd: "#4ade80",
+  roas: "#a78bfa",
   profit: "#2dd4bf",
   today: "#71717a",
   bep: "#fb7185",
@@ -302,6 +305,37 @@ function bucketWeekly(rows: DailyRow[]): WeeklyRow[] {
   return Array.from(map.values()).sort((a, b) => a.weekStart.localeCompare(b.weekStart));
 }
 
+// 월별 매출·광고비·ROAS 추이 (31일 초과 범위에서만 표시).
+type MonthlyRow = {
+  month: string; // YYYY-MM
+  netRevenue: number;
+  adSpend: number;
+  roas: number | null;
+};
+
+function bucketMonthly(rows: DailyRow[]): MonthlyRow[] {
+  const map = new Map<string, { netRevenue: number; adSpend: number }>();
+  for (const r of rows) {
+    const key = r.date.slice(0, 7);
+    const m = map.get(key) || { netRevenue: 0, adSpend: 0 };
+    m.netRevenue += r.netRevenue;
+    m.adSpend += r.adSpend;
+    map.set(key, m);
+  }
+  return Array.from(map.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([month, m]) => ({
+      month,
+      netRevenue: m.netRevenue,
+      adSpend: m.adSpend,
+      roas: calculateRoas(m.netRevenue, m.adSpend),
+    }));
+}
+
+function monthLabel(month: string): string {
+  return `${Number(month.slice(5, 7))}월`;
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Dashboard root
 // ────────────────────────────────────────────────────────────────────────────
@@ -318,6 +352,7 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [theme, toggleTheme] = useTheme();
   const pal = theme === "dark" ? DARK_PAL : LIGHT_PAL;
+  const monthly = useMemo(() => bucketMonthly(daily?.daily ?? []), [daily]);
 
   // 동시 진행 fetch 들 중 가장 최신 호출의 응답만 화면에 반영하기 위한 request id.
   // 사용자가 "전체 기간" → "오늘" 같이 빠르게 다른 범위를 누르면, PortOne cursor
@@ -449,6 +484,16 @@ export default function Dashboard() {
           <PeriodSummaryCard totals={summary?.totals} daily={daily?.daily ?? []} sourceNetRevenue={sourceNetRevenue} />
         </Card>
       </div>
+
+      {/* ── 2.5. 월별 추이 (31일 초과 범위) ─────────────────────────────── */}
+      {monthly.length >= 2 && (daily?.daily.length ?? 0) > 31 && (
+        <div className="mt-4">
+          <Card>
+            <CardHeader title="월별 매출 · 광고비 · ROAS 추이" badge={`${monthly.length}개월`} />
+            <MonthlyTrendChart monthly={monthly} pal={pal} />
+          </Card>
+        </div>
+      )}
 
       {/* ── 3. ROAS · 비용 구조 · 인사이트 ──────────────────────────────── */}
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -861,17 +906,7 @@ function DailyProfitChart({ rows, pal }: { rows: DailyRow[]; pal: ChartPalette }
   return (
     <div style={{ width: "100%", height: 320 }}>
       <ResponsiveContainer>
-        <ComposedChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-          <defs>
-            <linearGradient id="dailyNetGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor={pal.netArea} stopOpacity={0.45} />
-              <stop offset="95%" stopColor={pal.netArea} stopOpacity={0.03} />
-            </linearGradient>
-            <linearGradient id="dailyAdGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor={pal.adArea} stopOpacity={0.5} />
-              <stop offset="95%" stopColor={pal.adArea} stopOpacity={0.03} />
-            </linearGradient>
-          </defs>
+        <ComposedChart data={data} margin={{ top: 14, right: 20, left: 0, bottom: 5 }}>
           <CartesianGrid stroke={pal.grid} strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="date" tick={{ fontSize: 10, fill: pal.axis }} tickLine={false} axisLine={false} />
           <YAxis tick={{ fontSize: 11, fill: pal.axis }} tickLine={false} axisLine={false}
@@ -890,8 +925,16 @@ function DailyProfitChart({ rows, pal }: { rows: DailyRow[]; pal: ChartPalette }
             {...tooltipStyle(pal)}
           />
           <ReferenceLine y={0} stroke={pal.refline} strokeWidth={1} />
-          <Area type="monotone" dataKey="netRevenue" stroke={pal.netArea} strokeWidth={2} fill="url(#dailyNetGradient)" name="순매출" />
-          <Area type="monotone" dataKey="adSpend" stroke={pal.adArea} strokeWidth={2} fill="url(#dailyAdGradient)" name="광고비" />
+          <Bar dataKey="netRevenue" fill={pal.barRevenue} name="순매출" radius={[3, 3, 0, 0]}>
+            {data.length <= 14 && (
+              <LabelList dataKey="netRevenue" position="top" formatter={(v: number) => fmtKrwShort(v)} fontSize={9} fill={pal.axis} />
+            )}
+          </Bar>
+          <Bar dataKey="adSpend" fill={pal.barAd} name="광고비" radius={[3, 3, 0, 0]}>
+            {data.length <= 14 && (
+              <LabelList dataKey="adSpend" position="top" formatter={(v: number) => fmtKrwShort(v)} fontSize={9} fill={pal.axis} />
+            )}
+          </Bar>
           <Line type="monotone" dataKey="profitFinished" stroke={pal.profit} strokeWidth={2.5} dot={false} name="공헌이익" />
           {!weekly && (
             <Line type="monotone" dataKey="profitToday" stroke={pal.today} strokeWidth={2} strokeDasharray="4 4" dot={{ r: 3, fill: pal.today }} name="당일" />
@@ -903,6 +946,89 @@ function DailyProfitChart({ rows, pal }: { rows: DailyRow[]; pal: ChartPalette }
       ) : current ? (
         <p className="mt-2 text-[11px] text-gray-400 dark:text-zinc-500">※ 회색 점선은 당일(미완료) 데이터</p>
       ) : null}
+    </div>
+  );
+}
+
+function MonthlyTrendChart({ monthly, pal }: { monthly: MonthlyRow[]; pal: ChartPalette }) {
+  const data = monthly.map((m) => ({
+    label: monthLabel(m.month),
+    netRevenue: Math.round(m.netRevenue),
+    adSpend: Math.round(m.adSpend),
+    roas: m.roas !== null ? Number(m.roas.toFixed(1)) : null,
+  }));
+
+  return (
+    <div>
+      <div style={{ width: "100%", height: 300 }}>
+        <ResponsiveContainer>
+          <ComposedChart data={data} margin={{ top: 18, right: 8, left: 0, bottom: 5 }}>
+            <CartesianGrid stroke={pal.grid} strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 11, fill: pal.axis }} tickLine={false} axisLine={false} />
+            <YAxis yAxisId="krw" tick={{ fontSize: 11, fill: pal.axis }} tickLine={false} axisLine={false}
+              tickFormatter={(v: number) => fmtKrwShort(v)} />
+            <YAxis yAxisId="pct" orientation="right" tick={{ fontSize: 11, fill: pal.roas }} tickLine={false} axisLine={false}
+              tickFormatter={(v: number) => `${v.toFixed(0)}%`} />
+            <Tooltip
+              formatter={(v: number, name: string) => (name === "ROAS" ? [fmtPct(v, 1), name] : [fmtKrw(v), name])}
+              {...tooltipStyle(pal)}
+            />
+            <Bar yAxisId="krw" dataKey="netRevenue" fill={pal.barRevenue} name="매출" radius={[3, 3, 0, 0]}>
+              <LabelList dataKey="netRevenue" position="top" formatter={(v: number) => fmtKrwShort(v)} fontSize={10} fill={pal.axis} />
+            </Bar>
+            <Bar yAxisId="krw" dataKey="adSpend" fill={pal.barAd} name="광고비" radius={[3, 3, 0, 0]}>
+              <LabelList dataKey="adSpend" position="top" formatter={(v: number) => fmtKrwShort(v)} fontSize={10} fill={pal.axis} />
+            </Bar>
+            <Line yAxisId="pct" type="monotone" dataKey="roas" stroke={pal.roas} strokeWidth={2.5}
+              dot={{ r: 4, fill: pal.tooltipBg, stroke: pal.roas, strokeWidth: 2 }} name="ROAS">
+              <LabelList dataKey="roas" position="top" formatter={(v: number) => `${v.toFixed(1)}%`} fontSize={10} fill={pal.roas} />
+            </Line>
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-left text-gray-500 dark:text-zinc-400">
+              <th className="py-1.5 pr-3 font-medium">구분</th>
+              {data.map((d) => (
+                <th key={d.label} className="py-1.5 pr-3 text-right font-medium">{d.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-zinc-800">
+            <tr className="text-gray-700 dark:text-zinc-300">
+              <td className="py-1.5 pr-3">
+                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: pal.barRevenue }} />매출</span>
+              </td>
+              {data.map((d) => (
+                <td key={d.label} className="py-1.5 pr-3 text-right tabular-nums">{NUM.format(d.netRevenue)}</td>
+              ))}
+            </tr>
+            <tr className="text-gray-700 dark:text-zinc-300">
+              <td className="py-1.5 pr-3">
+                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: pal.barAd }} />광고비</span>
+              </td>
+              {data.map((d) => (
+                <td key={d.label} className="py-1.5 pr-3 text-right tabular-nums">{NUM.format(d.adSpend)}</td>
+              ))}
+            </tr>
+            <tr className="text-gray-700 dark:text-zinc-300">
+              <td className="py-1.5 pr-3">
+                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: pal.roas }} />ROAS</span>
+              </td>
+              {data.map((d) => (
+                <td key={d.label} className="py-1.5 pr-3 text-right font-medium tabular-nums" style={{ color: pal.roas }}>
+                  {d.roas !== null ? `${d.roas.toFixed(1)}%` : "—"}
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-[11px] text-gray-400 dark:text-zinc-500">
+        ※ 선택 기간 내 일자만 합산 — 시작·끝 달은 부분 월 데이터일 수 있음
+      </p>
     </div>
   );
 }
