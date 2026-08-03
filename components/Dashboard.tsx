@@ -261,75 +261,36 @@ function pctChange(prev: number, cur: number): number | null {
   return ((cur - prev) / Math.abs(prev)) * 100;
 }
 
-// 62일 초과 범위는 주(월요일 시작) 단위로 묶어 차트 가독성 확보.
-const WEEKLY_THRESHOLD = 62;
+// 62일 초과 범위는 월 단위로 묶어 차트 가독성 확보.
+const MONTHLY_THRESHOLD = 62;
 
-type WeeklyRow = {
-  weekStart: string;
-  weekEnd: string;
-  days: number;
-  netRevenue: number;
-  adSpend: number;
-  contributionProfit: number;
-  vat: number;
-  pgFee: number;
-  reportCost: number;
-};
-
-function weekStartOf(dateISO: string): string {
-  const d = new Date(dateISO + "T00:00:00");
-  const day = d.getDay();
-  const diff = (day + 6) % 7; // 월=0
-  d.setDate(d.getDate() - diff);
-  return ymd(d);
-}
-
-function bucketWeekly(rows: DailyRow[]): WeeklyRow[] {
-  const map = new Map<string, WeeklyRow>();
-  for (const r of rows) {
-    const ws = weekStartOf(r.date);
-    const w = map.get(ws) || {
-      weekStart: ws, weekEnd: r.date, days: 0,
-      netRevenue: 0, adSpend: 0, contributionProfit: 0, vat: 0, pgFee: 0, reportCost: 0,
-    };
-    w.days += 1;
-    w.weekEnd = r.date > w.weekEnd ? r.date : w.weekEnd;
-    w.netRevenue += r.netRevenue;
-    w.adSpend += r.adSpend;
-    w.contributionProfit += r.contributionProfit;
-    w.vat += r.vat;
-    w.pgFee += r.pgFee;
-    w.reportCost += r.reportCost;
-    map.set(ws, w);
-  }
-  return Array.from(map.values()).sort((a, b) => a.weekStart.localeCompare(b.weekStart));
-}
-
-// 월별 매출·광고비·ROAS 추이 (31일 초과 범위에서만 표시).
 type MonthlyRow = {
   month: string; // YYYY-MM
   netRevenue: number;
   adSpend: number;
+  vat: number;
+  pgFee: number;
+  reportCost: number;
+  contributionProfit: number;
   roas: number | null;
 };
 
 function bucketMonthly(rows: DailyRow[]): MonthlyRow[] {
-  const map = new Map<string, { netRevenue: number; adSpend: number }>();
+  const map = new Map<string, Omit<MonthlyRow, "month" | "roas">>();
   for (const r of rows) {
     const key = r.date.slice(0, 7);
-    const m = map.get(key) || { netRevenue: 0, adSpend: 0 };
+    const m = map.get(key) || { netRevenue: 0, adSpend: 0, vat: 0, pgFee: 0, reportCost: 0, contributionProfit: 0 };
     m.netRevenue += r.netRevenue;
     m.adSpend += r.adSpend;
+    m.vat += r.vat;
+    m.pgFee += r.pgFee;
+    m.reportCost += r.reportCost;
+    m.contributionProfit += r.contributionProfit;
     map.set(key, m);
   }
   return Array.from(map.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([month, m]) => ({
-      month,
-      netRevenue: m.netRevenue,
-      adSpend: m.adSpend,
-      roas: calculateRoas(m.netRevenue, m.adSpend),
-    }));
+    .map(([month, m]) => ({ month, ...m, roas: calculateRoas(m.netRevenue, m.adSpend) }));
 }
 
 function monthLabel(month: string): string {
@@ -472,8 +433,8 @@ export default function Dashboard() {
           <CardHeader
             title="일별 손익"
             badge={daily
-              ? daily.daily.length > WEEKLY_THRESHOLD
-                ? `${daily.daily.length}일 · 주별 표시`
+              ? daily.daily.length > MONTHLY_THRESHOLD
+                ? `${daily.daily.length}일 · 월별 표시`
                 : `${daily.daily.length}일`
               : "—"}
           />
@@ -881,14 +842,14 @@ function ProfitKpiCard({ totals, delta }: { totals?: ProfitTotals; delta: number
 function DailyProfitChart({ rows, pal }: { rows: DailyRow[]; pal: ChartPalette }) {
   const today = todayStr();
   const current = rows.find((r) => r.date === today);
-  const weekly = rows.length > WEEKLY_THRESHOLD;
+  const monthly = rows.length > MONTHLY_THRESHOLD;
 
-  const data = weekly
-    ? bucketWeekly(rows).map((w) => ({
-        date: w.weekStart,
-        netRevenue: Math.round(w.netRevenue),
-        adSpend: Math.round(w.adSpend),
-        profitFinished: Math.round(w.contributionProfit),
+  const data = monthly
+    ? bucketMonthly(rows).map((m) => ({
+        date: monthLabel(m.month),
+        netRevenue: Math.round(m.netRevenue),
+        adSpend: Math.round(m.adSpend),
+        profitFinished: Math.round(m.contributionProfit),
         profitToday: null as number | null,
       }))
     : rows.map((r) => ({
@@ -921,7 +882,6 @@ function DailyProfitChart({ rows, pal }: { rows: DailyRow[]; pal: ChartPalette }
                           : name;
               return [fmtKrw(v), label];
             }}
-            labelFormatter={(label: string) => weekly ? `${label} 주` : label}
             {...tooltipStyle(pal)}
           />
           <ReferenceLine y={0} stroke={pal.refline} strokeWidth={1} />
@@ -936,13 +896,13 @@ function DailyProfitChart({ rows, pal }: { rows: DailyRow[]; pal: ChartPalette }
             )}
           </Bar>
           <Line type="monotone" dataKey="profitFinished" stroke={pal.profit} strokeWidth={2.5} dot={false} name="공헌이익" />
-          {!weekly && (
+          {!monthly && (
             <Line type="monotone" dataKey="profitToday" stroke={pal.today} strokeWidth={2} strokeDasharray="4 4" dot={{ r: 3, fill: pal.today }} name="당일" />
           )}
         </ComposedChart>
       </ResponsiveContainer>
-      {weekly ? (
-        <p className="mt-2 text-[11px] text-gray-400 dark:text-zinc-500">※ 62일 초과 기간은 주(월요일 시작) 단위 합계로 표시</p>
+      {monthly ? (
+        <p className="mt-2 text-[11px] text-gray-400 dark:text-zinc-500">※ 62일 초과 기간은 월 단위 합계로 표시 — 시작·끝 달은 부분 데이터일 수 있음</p>
       ) : current ? (
         <p className="mt-2 text-[11px] text-gray-400 dark:text-zinc-500">※ 회색 점선은 당일(미완료) 데이터</p>
       ) : null}
@@ -1035,16 +995,16 @@ function MonthlyTrendChart({ monthly, pal }: { monthly: MonthlyRow[]; pal: Chart
 
 function RoasChart({ rows, pal }: { rows: DailyRow[]; pal: ChartPalette }) {
   const today = todayStr();
-  const weekly = rows.length > WEEKLY_THRESHOLD;
+  const monthly = rows.length > MONTHLY_THRESHOLD;
 
-  const data = weekly
-    ? bucketWeekly(rows.filter((r) => r.date < today))
-        .filter((w) => w.adSpend > 0)
-        .map((w) => {
-          const roas = calculateRoas(w.netRevenue, w.adSpend);
-          const bep = calculateBreakEvenRoas(w.netRevenue, w.netRevenue - w.vat, w.pgFee, w.reportCost);
+  const data = monthly
+    ? bucketMonthly(rows.filter((r) => r.date < today))
+        .filter((m) => m.adSpend > 0)
+        .map((m) => {
+          const roas = calculateRoas(m.netRevenue, m.adSpend);
+          const bep = calculateBreakEvenRoas(m.netRevenue, m.netRevenue - m.vat, m.pgFee, m.reportCost);
           return {
-            date: w.weekStart,
+            date: monthLabel(m.month),
             roas: roas !== null ? Number(roas.toFixed(1)) : null,
             bep: Number(bep.toFixed(1)),
           };
@@ -1070,7 +1030,6 @@ function RoasChart({ rows, pal }: { rows: DailyRow[]; pal: ChartPalette }) {
           <YAxis tick={{ fontSize: 11, fill: pal.axis }} tickLine={false} axisLine={false}
             tickFormatter={(v: number) => `${v.toFixed(0)}%`} />
           <Tooltip formatter={(v: number, name: string) => [`${v.toFixed(1)}%`, name]}
-            labelFormatter={(label: string) => weekly ? `${label} 주` : label}
             {...tooltipStyle(pal)} />
           <Line type="monotone" dataKey="bep" stroke={pal.bep} strokeWidth={1.5} strokeDasharray="6 4" dot={false} name="손익분기 ROAS" />
           <Line type="monotone" dataKey="roas" stroke={pal.profit} strokeWidth={2.5} dot={false} name="ROAS" />
