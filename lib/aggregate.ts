@@ -11,6 +11,8 @@ export type DashboardSummary = {
   byChannel: Array<{ label: string; gross: number; net: number; count: number; pct: number }>;
   daily: Array<{ date: string; gross: number }>;
   weekly: Array<{ weekStart: string; gross: number }>;
+  // KST 0~23시 결제 분포 (PAID + PARTIAL_CANCELLED 순거래액 기준). 항상 24개.
+  hourly: Array<{ hour: number; amount: number; count: number }>;
 };
 
 type AnyPayment = PortonePayment & {
@@ -39,6 +41,12 @@ function ymd(d: Date): string {
   // epoch 에 +9h 더한 후 toISOString().slice(0,10) 으로 KST 일자 추출.
   const kst = new Date(d.getTime() + 9 * 3600 * 1000);
   return kst.toISOString().slice(0, 10);
+}
+
+function kstHour(d: Date): number {
+  // ymd 와 동일한 +9h shift 로 KST 시(0~23) 추출.
+  const kst = new Date(d.getTime() + 9 * 3600 * 1000);
+  return kst.getUTCHours();
 }
 
 function weekStart(d: Date): string {
@@ -129,6 +137,7 @@ export function aggregate(
   const channelMap = new Map<string, { gross: number; net: number; count: number }>();
   const dailyMap = new Map<string, number>();
   const weeklyMap = new Map<string, number>();
+  const hourlyBuckets = Array.from({ length: 24 }, () => ({ amount: 0, count: 0 }));
 
   for (const raw of payments) {
     const p = raw as AnyPayment;
@@ -165,6 +174,9 @@ export function aggregate(
         dailyMap.set(dkey, (dailyMap.get(dkey) || 0) + total);
         const wkey = weekStart(at);
         weeklyMap.set(wkey, (weeklyMap.get(wkey) || 0) + total);
+        const h = hourlyBuckets[kstHour(at)];
+        h.amount += total;
+        h.count += 1;
       }
     } else if (status === "CANCELLED") {
       gross += total;            // 거래액에 포함
@@ -192,6 +204,9 @@ export function aggregate(
         dailyMap.set(dkey, (dailyMap.get(dkey) || 0) + (total - cancelledAmt));
         const wkey = weekStart(at);
         weeklyMap.set(wkey, (weeklyMap.get(wkey) || 0) + (total - cancelledAmt));
+        const h = hourlyBuckets[kstHour(at)];
+        h.amount += total - cancelledAmt;
+        h.count += 1;
       }
     }
     // FAILED / READY / PAY_PENDING / VIRTUAL_ACCOUNT_ISSUED → 무시
@@ -215,6 +230,8 @@ export function aggregate(
     .map(([weekStart, g]) => ({ weekStart, gross: g }))
     .sort((a, b) => a.weekStart.localeCompare(b.weekStart));
 
+  const hourly = hourlyBuckets.map((b, hour) => ({ hour, amount: b.amount, count: b.count }));
+
   return {
     range,
     fetchedAt: new Date().toISOString(),
@@ -226,5 +243,6 @@ export function aggregate(
     byChannel,
     daily,
     weekly,
+    hourly,
   };
 }

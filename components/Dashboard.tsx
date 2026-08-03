@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { calculateBreakEvenRoas, calculateRoas } from "@/lib/calc";
 import {
   Bar,
+  BarChart,
   CartesianGrid,
   Cell,
   ComposedChart,
@@ -32,6 +34,7 @@ type PaymentsData = {
   byChannel: Array<{ label: string; gross: number; net: number; count: number; pct: number }>;
   daily: Array<{ date: string; gross: number }>;
   weekly: Array<{ weekStart: string; gross: number }>;
+  hourly?: Array<{ hour: number; amount: number; count: number }>;
   cached?: boolean;
 };
 
@@ -109,6 +112,108 @@ type CampaignsData = {
   cached?: boolean;
 };
 
+// 직전 동기간 합계 (KPI 증감 비교용)
+type PrevTotals = {
+  days: number;
+  netRevenue: number;
+  adSpend: number;
+  pgFee: number;
+  reportCost: number;
+  contributionProfit: number;
+};
+
+// ────────────────────────────────────────────────────────────────────────────
+// Theme (다크모드)
+// ────────────────────────────────────────────────────────────────────────────
+
+type Theme = "light" | "dark";
+
+function useTheme(): [Theme, () => void] {
+  // 초기값은 layout.tsx 인라인 스크립트가 심어 둔 html.dark 를 따른다.
+  const [theme, setTheme] = useState<Theme>("light");
+  useEffect(() => {
+    setTheme(document.documentElement.classList.contains("dark") ? "dark" : "light");
+  }, []);
+  const toggle = useCallback(() => {
+    setTheme((prev) => {
+      const next: Theme = prev === "dark" ? "light" : "dark";
+      document.documentElement.classList.toggle("dark", next === "dark");
+      try {
+        localStorage.setItem("rmsf_theme", next);
+      } catch {}
+      return next;
+    });
+  }, []);
+  return [theme, toggle];
+}
+
+// Recharts 는 SVG 속성에 hex 를 직접 받으므로 테마별 팔레트 객체로 공급.
+type ChartPalette = {
+  grid: string;
+  axis: string;
+  refline: string;
+  barNet: string;
+  barAd: string;
+  profit: string;
+  today: string;
+  bep: string;
+  spark: string;
+  hourly: string;
+  donut: [string, string, string, string];
+  donutStroke: string;
+  tooltipBg: string;
+  tooltipBorder: string;
+  tooltipLabel: string;
+};
+
+const LIGHT_PAL: ChartPalette = {
+  grid: "#f3f4f6",
+  axis: "#9ca3af",
+  refline: "#9ca3af",
+  barNet: "#e5e7eb",
+  barAd: "#fda4af",
+  profit: "#0f766e",
+  today: "#9ca3af",
+  bep: "#fb7185",
+  spark: "#FF6F0F",
+  hourly: "#FF6F0F",
+  donut: ["#94a3b8", "#a78bfa", "#fbbf24", "#fb7185"],
+  donutStroke: "#ffffff",
+  tooltipBg: "#ffffff",
+  tooltipBorder: "#e5e7eb",
+  tooltipLabel: "#6b7280",
+};
+
+const DARK_PAL: ChartPalette = {
+  grid: "#27272a",
+  axis: "#71717a",
+  refline: "#71717a",
+  barNet: "#3f3f46",
+  barAd: "#b0455c",
+  profit: "#2dd4bf",
+  today: "#71717a",
+  bep: "#fb7185",
+  spark: "#FF8534",
+  hourly: "#FF8534",
+  donut: ["#64748b", "#a78bfa", "#fbbf24", "#fb7185"],
+  donutStroke: "#18181b",
+  tooltipBg: "#18181b",
+  tooltipBorder: "#3f3f46",
+  tooltipLabel: "#a1a1aa",
+};
+
+function tooltipStyle(pal: ChartPalette) {
+  return {
+    contentStyle: {
+      borderRadius: 8,
+      border: `1px solid ${pal.tooltipBorder}`,
+      background: pal.tooltipBg,
+    },
+    labelStyle: { color: pal.tooltipLabel, fontSize: 12 },
+    itemStyle: { fontSize: 12 },
+  } as const;
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Formatters / helpers
 // ────────────────────────────────────────────────────────────────────────────
@@ -127,6 +232,16 @@ function daysAgo(n: number): string {
 function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+function addDays(iso: string, n: number): string {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + n);
+  return ymd(d);
+}
+function diffDays(from: string, until: string): number {
+  const a = new Date(from + "T00:00:00").getTime();
+  const b = new Date(until + "T00:00:00").getTime();
+  return Math.round((b - a) / 86400000) + 1;
+}
 function fmtKrw(n: number): string {
   return `₩${NUM.format(Math.round(n))}`;
 }
@@ -144,6 +259,50 @@ function pctChange(prev: number, cur: number): number | null {
   return ((cur - prev) / Math.abs(prev)) * 100;
 }
 
+// 62일 초과 범위는 주(월요일 시작) 단위로 묶어 차트 가독성 확보.
+const WEEKLY_THRESHOLD = 62;
+
+type WeeklyRow = {
+  weekStart: string;
+  weekEnd: string;
+  days: number;
+  netRevenue: number;
+  adSpend: number;
+  contributionProfit: number;
+  vat: number;
+  pgFee: number;
+  reportCost: number;
+};
+
+function weekStartOf(dateISO: string): string {
+  const d = new Date(dateISO + "T00:00:00");
+  const day = d.getDay();
+  const diff = (day + 6) % 7; // 월=0
+  d.setDate(d.getDate() - diff);
+  return ymd(d);
+}
+
+function bucketWeekly(rows: DailyRow[]): WeeklyRow[] {
+  const map = new Map<string, WeeklyRow>();
+  for (const r of rows) {
+    const ws = weekStartOf(r.date);
+    const w = map.get(ws) || {
+      weekStart: ws, weekEnd: r.date, days: 0,
+      netRevenue: 0, adSpend: 0, contributionProfit: 0, vat: 0, pgFee: 0, reportCost: 0,
+    };
+    w.days += 1;
+    w.weekEnd = r.date > w.weekEnd ? r.date : w.weekEnd;
+    w.netRevenue += r.netRevenue;
+    w.adSpend += r.adSpend;
+    w.contributionProfit += r.contributionProfit;
+    w.vat += r.vat;
+    w.pgFee += r.pgFee;
+    w.reportCost += r.reportCost;
+    map.set(ws, w);
+  }
+  return Array.from(map.values()).sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Dashboard root
 // ────────────────────────────────────────────────────────────────────────────
@@ -155,8 +314,11 @@ export default function Dashboard() {
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [daily, setDaily] = useState<DailyData | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignsData | null>(null);
+  const [prevTotals, setPrevTotals] = useState<PrevTotals | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [theme, toggleTheme] = useTheme();
+  const pal = theme === "dark" ? DARK_PAL : LIGHT_PAL;
 
   // 동시 진행 fetch 들 중 가장 최신 호출의 응답만 화면에 반영하기 위한 request id.
   // 사용자가 "전체 기간" → "오늘" 같이 빠르게 다른 범위를 누르면, PortOne cursor
@@ -172,16 +334,25 @@ export default function Dashboard() {
     const qs = new URLSearchParams({ from, until });
     if (force) qs.set("force", "1");
     const q = qs.toString();
+
+    // 직전 동기간: 선택 범위 바로 앞의 같은 길이 구간 (KPI 증감 비교용).
+    const len = diffDays(from, until);
+    const prevUntil = addDays(from, -1);
+    const prevFrom = addDays(prevUntil, -(len - 1));
+    const prevQs = new URLSearchParams({ from: prevFrom, until: prevUntil });
+    if (force) prevQs.set("force", "1");
+
     try {
-      const [pRes, sRes, dRes, cRes] = await Promise.all([
+      const [pRes, sRes, dRes, cRes, prevRes] = await Promise.all([
         fetch(`/api/payments?${q}`, { cache: "no-store" }),
         fetch(`/api/dashboard/summary?${q}`, { cache: "no-store" }),
         fetch(`/api/dashboard/daily?${q}`, { cache: "no-store" }),
         fetch(`/api/dashboard/meta-campaigns?${q}`, { cache: "no-store" }),
+        fetch(`/api/dashboard/daily?${prevQs.toString()}`, { cache: "no-store" }),
       ]);
       if (reqIdRef.current !== myId) return;
-      const [pJson, sJson, dJson, cJson] = await Promise.all([
-        pRes.json(), sRes.json(), dRes.json(), cRes.json(),
+      const [pJson, sJson, dJson, cJson, prevJson] = await Promise.all([
+        pRes.json(), sRes.json(), dRes.json(), cRes.json(), prevRes.json(),
       ]);
       if (reqIdRef.current !== myId) return;
       if (!pRes.ok) {
@@ -192,6 +363,19 @@ export default function Dashboard() {
       if (sRes.ok) setSummary(sJson);
       if (dRes.ok) setDaily(dJson);
       if (cRes.ok) setCampaigns(cJson);
+      if (prevRes.ok && Array.isArray(prevJson?.daily)) {
+        const rows: DailyRow[] = prevJson.daily;
+        setPrevTotals({
+          days: len,
+          netRevenue: rows.reduce((a, r) => a + r.netRevenue, 0),
+          adSpend: rows.reduce((a, r) => a + r.adSpend, 0),
+          pgFee: rows.reduce((a, r) => a + r.pgFee, 0),
+          reportCost: rows.reduce((a, r) => a + r.reportCost, 0),
+          contributionProfit: rows.reduce((a, r) => a + r.contributionProfit, 0),
+        });
+      } else {
+        setPrevTotals(null);
+      }
     } catch (e: any) {
       if (reqIdRef.current !== myId) return;
       setError(String(e?.message || e));
@@ -217,6 +401,8 @@ export default function Dashboard() {
       <Header
         fetchedAt={payments?.fetchedAt}
         cached={Boolean(payments?.cached && summary?.cached && daily?.cached)}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       />
 
       <FilterBar
@@ -242,27 +428,36 @@ export default function Dashboard() {
         totals={summary?.totals}
         sourceNetRevenue={sourceNetRevenue}
         daily={daily?.daily ?? []}
+        prev={prevTotals}
+        pal={pal}
       />
 
       {/* ── 2. 중단 차트 3개 ───────────────────────────────────────────── */}
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <CardHeader title="일별 손익" badge={daily ? `${daily.daily.length}일` : "—"} />
-          <DailyProfitChart rows={daily?.daily ?? []} />
+          <CardHeader
+            title="일별 손익"
+            badge={daily
+              ? daily.daily.length > WEEKLY_THRESHOLD
+                ? `${daily.daily.length}일 · 주별 표시`
+                : `${daily.daily.length}일`
+              : "—"}
+          />
+          <DailyProfitChart rows={daily?.daily ?? []} pal={pal} />
         </Card>
         <Card>
           <CardHeader
             title="ROAS vs 손익분기 ROAS"
             badge="원가구조 BEP · 결제매출 기준"
           />
-          <RoasChart rows={daily?.daily ?? []} />
+          <RoasChart rows={daily?.daily ?? []} pal={pal} />
         </Card>
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader title="비용 구조" />
-          <CostDonut totals={summary?.totals} />
+          <CostDonut totals={summary?.totals} pal={pal} />
         </Card>
         <Card>
           <CardHeader title="인사이트" />
@@ -272,6 +467,13 @@ export default function Dashboard() {
             sourceNetRevenue={sourceNetRevenue}
             settings={summary?.settings}
           />
+        </Card>
+      </div>
+
+      <div className="mt-4">
+        <Card>
+          <CardHeader title="시간대별 결제 분포" badge="KST · 선택 기간 합산" />
+          <HourlyChart hourly={payments?.hourly ?? []} pal={pal} />
         </Card>
       </div>
 
@@ -294,7 +496,7 @@ export default function Dashboard() {
         </CollapsibleCard>
       </div>
 
-      <p className="mt-8 text-xs text-gray-400">
+      <p className="mt-8 text-xs text-gray-400 dark:text-zinc-500">
         데이터 출처: PortOne V2 API · Meta Marketing API · Google Play 인앱결제는 본 대시보드에 포함되지 않음
       </p>
     </div>
@@ -305,20 +507,40 @@ export default function Dashboard() {
 // Layout pieces
 // ────────────────────────────────────────────────────────────────────────────
 
-function Header({ fetchedAt, cached }: { fetchedAt?: string; cached?: boolean }) {
+function Header({
+  fetchedAt, cached, theme, onToggleTheme,
+}: { fetchedAt?: string; cached?: boolean; theme: Theme; onToggleTheme: () => void }) {
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-2">
       <div>
-        <h1 className="text-lg font-semibold tracking-tight text-gray-900 sm:text-xl">결제 · 광고 손익 대시보드</h1>
-        <p className="mt-0.5 text-xs text-gray-400">Read My Saju · PortOne × Meta</p>
+        <h1 className="text-lg font-semibold tracking-tight text-gray-900 dark:text-zinc-100 sm:text-xl">결제 · 광고 손익 대시보드</h1>
+        <p className="mt-0.5 text-xs text-gray-400 dark:text-zinc-500">Read My Saju · PortOne × Meta</p>
       </div>
-      <div className="flex items-center gap-2 text-xs text-gray-400">
+      <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-zinc-500">
         {fetchedAt && <span>업데이트 {new Date(fetchedAt).toLocaleString("ko-KR")}</span>}
-        {cached && <span className="rounded bg-gray-100 px-2 py-0.5">cached</span>}
+        {cached && <span className="rounded bg-gray-100 px-2 py-0.5 dark:bg-zinc-800">cached</span>}
+        <button
+          type="button"
+          onClick={onToggleTheme}
+          aria-label={theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환"}
+          className="flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+        >
+          {theme === "dark" ? (
+            <svg className="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+            </svg>
+          ) : (
+            <svg className="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+            </svg>
+          )}
+        </button>
       </div>
     </div>
   );
 }
+
+const filterBtnCls = "rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800";
 
 function FilterBar({
   from, until, setFrom, setUntil, loading, onRefresh, onLogout,
@@ -329,24 +551,19 @@ function FilterBar({
 }) {
   return (
     <div className="mb-6 flex flex-wrap items-center gap-2">
-      <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm">
-        <span className="text-gray-500">시작</span>
-        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="bg-transparent outline-none" />
+      <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900">
+        <span className="text-gray-500 dark:text-zinc-400">시작</span>
+        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="bg-transparent outline-none dark:text-zinc-200" />
       </div>
-      <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm">
-        <span className="text-gray-500">종료</span>
-        <input type="date" value={until} onChange={(e) => setUntil(e.target.value)} className="bg-transparent outline-none" />
+      <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900">
+        <span className="text-gray-500 dark:text-zinc-400">종료</span>
+        <input type="date" value={until} onChange={(e) => setUntil(e.target.value)} className="bg-transparent outline-none dark:text-zinc-200" />
       </div>
-      <button type="button" onClick={() => { setFrom(todayStr()); setUntil(todayStr()); }}
-        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">오늘</button>
-      <button type="button" onClick={() => { setFrom(daysAgo(1)); setUntil(daysAgo(1)); }}
-        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">어제</button>
-      <button type="button" onClick={() => { setFrom("2026-01-01"); setUntil(todayStr()); }}
-        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">전체 기간</button>
-      <button type="button" onClick={() => { setFrom(daysAgo(29)); setUntil(todayStr()); }}
-        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">최근 30일</button>
-      <button type="button" onClick={() => { setFrom(daysAgo(6)); setUntil(todayStr()); }}
-        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">최근 7일</button>
+      <button type="button" onClick={() => { setFrom(todayStr()); setUntil(todayStr()); }} className={filterBtnCls}>오늘</button>
+      <button type="button" onClick={() => { setFrom(daysAgo(1)); setUntil(daysAgo(1)); }} className={filterBtnCls}>어제</button>
+      <button type="button" onClick={() => { setFrom("2026-01-01"); setUntil(todayStr()); }} className={filterBtnCls}>전체 기간</button>
+      <button type="button" onClick={() => { setFrom(daysAgo(29)); setUntil(todayStr()); }} className={filterBtnCls}>최근 30일</button>
+      <button type="button" onClick={() => { setFrom(daysAgo(6)); setUntil(todayStr()); }} className={filterBtnCls}>최근 7일</button>
       <div className="grow" />
       <button type="button" onClick={onRefresh} disabled={loading}
         className="flex items-center gap-2 rounded-lg bg-portone px-4 py-2 text-sm font-medium text-white hover:bg-portone-600 disabled:opacity-50">
@@ -356,32 +573,32 @@ function FilterBar({
         {loading ? "불러오는 중…" : "새로고침"}
       </button>
       <button type="button" onClick={onLogout}
-        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-500 hover:bg-gray-50">로그아웃</button>
+        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-500 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800">로그아웃</button>
     </div>
   );
 }
 
 function Banner({ tone, title, body }: { tone: "error" | "warn"; title: string; body: string }) {
   const cls = tone === "error"
-    ? "border-rose-200 bg-rose-50 text-rose-700"
-    : "border-amber-200 bg-amber-50 text-amber-800";
+    ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
+    : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300";
   return (
     <div className={`mb-6 rounded-lg border px-4 py-3 text-sm ${cls}`}>
       <div className="font-medium">{title}</div>
-      <div className={`mt-1 ${tone === "error" ? "text-rose-600" : "text-amber-700"}`}>{body}</div>
+      <div className={`mt-1 ${tone === "error" ? "text-rose-600 dark:text-rose-400" : "text-amber-700 dark:text-amber-400"}`}>{body}</div>
     </div>
   );
 }
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <div className={`rounded-2xl border border-gray-200 bg-white p-5 ${className}`}>{children}</div>;
+  return <div className={`rounded-2xl border border-gray-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 ${className}`}>{children}</div>;
 }
 
 function CardHeader({ title, badge }: { title: string; badge?: string }) {
   return (
     <div className="mb-3 flex items-center gap-2">
-      <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
-      {badge && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">{badge}</span>}
+      <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">{title}</h3>
+      {badge && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-zinc-800 dark:text-zinc-400">{badge}</span>}
     </div>
   );
 }
@@ -390,17 +607,17 @@ function CollapsibleCard({
   title, subtitle, defaultOpen, children,
 }: { title: string; subtitle?: string; defaultOpen?: boolean; children: React.ReactNode }) {
   return (
-    <details open={defaultOpen} className="group rounded-2xl border border-gray-200 bg-white">
-      <summary className="flex cursor-pointer items-center justify-between px-5 py-4 text-sm font-semibold text-gray-900">
+    <details open={defaultOpen} className="group rounded-2xl border border-gray-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      <summary className="flex cursor-pointer items-center justify-between px-5 py-4 text-sm font-semibold text-gray-900 dark:text-zinc-100">
         <div className="flex items-center gap-2">
           <span>{title}</span>
-          {subtitle && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-normal text-gray-500">{subtitle}</span>}
+          {subtitle && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-normal text-gray-500 dark:bg-zinc-800 dark:text-zinc-400">{subtitle}</span>}
         </div>
-        <svg className="h-4 w-4 text-gray-400 transition group-open:rotate-180" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg className="h-4 w-4 text-gray-400 transition group-open:rotate-180 dark:text-zinc-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </summary>
-      <div className="border-t border-gray-100 px-5 py-4">{children}</div>
+      <div className="border-t border-gray-100 px-5 py-4 dark:border-zinc-800">{children}</div>
     </details>
   );
 }
@@ -410,34 +627,34 @@ function CollapsibleCard({
 // ────────────────────────────────────────────────────────────────────────────
 
 function KpiStrip({
-  totals, sourceNetRevenue, daily,
+  totals, sourceNetRevenue, daily, prev, pal,
 }: {
   totals?: ProfitTotals;
   sourceNetRevenue: number;
   daily: DailyRow[];
+  prev: PrevTotals | null;
+  pal: ChartPalette;
 }) {
-  // 전기간 증감 = 전반부 평균 vs 후반부 평균 (당일 제외)
   const finishedDaily = useMemo(() => {
     const today = todayStr();
     return daily.filter((d) => d.date < today);
   }, [daily]);
 
-  function delta(getter: (d: DailyRow) => number): number | null {
-    const arr = finishedDaily;
-    if (arr.length < 2) return null;
-    const half = Math.floor(arr.length / 2);
-    const prev = arr.slice(0, half).map(getter);
-    const cur = arr.slice(half).map(getter);
-    if (prev.length === 0 || cur.length === 0) return null;
-    const pavg = prev.reduce((a, b) => a + b, 0) / prev.length;
-    const cavg = cur.reduce((a, b) => a + b, 0) / cur.length;
-    return pctChange(pavg, cavg);
+  // 증감 = 직전 동기간(같은 길이의 바로 앞 구간) 대비 일평균 비교.
+  // 당일(미완료)은 현재 구간 합계에서 제외하고, 완료된 일수 기준 평균으로 맞춘다.
+  function delta(getCur: (d: DailyRow) => number, getPrev: (p: PrevTotals) => number): number | null {
+    if (!prev || prev.days <= 0 || finishedDaily.length === 0) return null;
+    const curSum = finishedDaily.reduce((a, d) => a + getCur(d), 0);
+    const curAvg = curSum / finishedDaily.length;
+    const prevAvg = getPrev(prev) / prev.days;
+    return pctChange(prevAvg, curAvg);
   }
 
-  const netDelta = delta((d) => d.netRevenue);
-  const adDelta = delta((d) => d.adSpend);
-  const pgDelta = delta((d) => d.pgFee);
-  const reportDelta = delta((d) => d.reportCost);
+  const netDelta = delta((d) => d.netRevenue, (p) => p.netRevenue);
+  const adDelta = delta((d) => d.adSpend, (p) => p.adSpend);
+  const pgDelta = delta((d) => d.pgFee, (p) => p.pgFee);
+  const reportDelta = delta((d) => d.reportCost, (p) => p.reportCost);
+  const profitDelta = delta((d) => d.contributionProfit, (p) => p.contributionProfit);
 
   // VAT 제외 매출 (첫 카드 서브표기용) — 결제매출 × 10/11 동등.
   const revenueExVat = sourceNetRevenue - sourceNetRevenue / 11;
@@ -450,6 +667,7 @@ function KpiStrip({
         delta={netDelta}
         sparkData={finishedDaily.map((d) => d.netRevenue)}
         subText={`VAT 제외 ${fmtKrw(revenueExVat)}`}
+        pal={pal}
       />
       <KpiCard
         label="광고비"
@@ -457,6 +675,7 @@ function KpiStrip({
         delta={adDelta}
         deltaInverse
         sparkData={finishedDaily.map((d) => d.adSpend)}
+        pal={pal}
       />
       <KpiCard
         label="결제수수료 (PG)"
@@ -464,6 +683,7 @@ function KpiStrip({
         delta={pgDelta}
         deltaInverse
         sparkData={finishedDaily.map((d) => d.pgFee)}
+        pal={pal}
       />
       <KpiCard
         label="리포트 생성원가"
@@ -471,15 +691,30 @@ function KpiStrip({
         delta={reportDelta}
         deltaInverse
         sparkData={finishedDaily.map((d) => d.reportCost)}
+        pal={pal}
       />
       <RoasKpiCard totals={totals} />
-      <ProfitKpiCard totals={totals} />
+      <ProfitKpiCard totals={totals} delta={profitDelta} />
+    </div>
+  );
+}
+
+function DeltaText({ delta, deltaInverse }: { delta: number | null; deltaInverse?: boolean }) {
+  const positive = delta !== null && delta >= 0;
+  const goodColor = deltaInverse ? !positive : positive;
+  const arrowColor = delta === null
+    ? "text-gray-400 dark:text-zinc-500"
+    : goodColor ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400";
+  return (
+    <div className={`text-xs font-medium ${arrowColor}`} title="직전 동기간(같은 길이의 바로 앞 구간) 일평균 대비">
+      {delta === null ? "—" : `${positive ? "▲" : "▼"} ${Math.abs(delta).toFixed(1)}%`}
+      <span className="ml-1 text-[10px] font-normal text-gray-400 dark:text-zinc-500">vs 이전 기간</span>
     </div>
   );
 }
 
 function KpiCard({
-  label, value, delta, deltaInverse, sparkData, subText,
+  label, value, delta, deltaInverse, sparkData, subText, pal,
 }: {
   label: string;
   value: number;
@@ -487,32 +722,26 @@ function KpiCard({
   deltaInverse?: boolean;        // 광고비/수수료처럼 "줄어드는 게 좋은" 지표는 색 반전
   sparkData: number[];
   subText?: string;
+  pal: ChartPalette;
 }) {
   const sparkPoints = sparkData.map((v, i) => ({ x: i, y: v }));
-  const positive = delta !== null && delta >= 0;
-  const goodColor = deltaInverse ? !positive : positive;
-  const arrowColor = delta === null
-    ? "text-gray-400"
-    : goodColor ? "text-emerald-600" : "text-rose-600";
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4">
-      <div className="text-xs font-medium text-gray-500">{label}</div>
-      <div className="mt-1.5 text-2xl font-bold tracking-tight text-gray-900">
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="text-xs font-medium text-gray-500 dark:text-zinc-400">{label}</div>
+      <div className="mt-1.5 text-2xl font-bold tracking-tight text-gray-900 dark:text-zinc-100">
         {fmtKrw(value)}
       </div>
       {subText && (
-        <div className="mt-0.5 text-[11px] text-gray-400">{subText}</div>
+        <div className="mt-0.5 text-[11px] text-gray-400 dark:text-zinc-500">{subText}</div>
       )}
       <div className="mt-2 flex items-center justify-between">
-        <div className={`text-xs font-medium ${arrowColor}`}>
-          {delta === null ? "—" : `${positive ? "▲" : "▼"} ${Math.abs(delta).toFixed(1)}%`}
-        </div>
+        <DeltaText delta={delta} deltaInverse={deltaInverse} />
         <div className="h-6 w-20">
           {sparkData.length >= 2 && (
             <ResponsiveContainer>
               <LineChart data={sparkPoints}>
-                <Line type="monotone" dataKey="y" stroke="#FF6F0F" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                <Line type="monotone" dataKey="y" stroke={pal.spark} strokeWidth={1.5} dot={false} isAnimationActive={false} />
               </LineChart>
             </ResponsiveContainer>
           )}
@@ -530,50 +759,53 @@ function RoasKpiCard({ totals }: { totals?: ProfitTotals }) {
   const advice = totals?.adAdvice ?? "—";
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4">
-      <div className="text-xs font-medium text-gray-500">ROAS</div>
-      <div className="mt-1.5 text-2xl font-bold tracking-tight text-gray-900">
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="text-xs font-medium text-gray-500 dark:text-zinc-400">ROAS</div>
+      <div className="mt-1.5 text-2xl font-bold tracking-tight text-gray-900 dark:text-zinc-100">
         {fmtPct(roas, 1)}
       </div>
-      <div className="mt-0.5 text-[11px] text-gray-400">
+      <div className="mt-0.5 text-[11px] text-gray-400 dark:text-zinc-500">
         포트원 결제매출(VAT 포함) ÷ 광고비 · 손익분기 {fmtPct(bep, 1)}
       </div>
       <div className="mt-2 flex items-center justify-between gap-2">
         <span className={`min-w-0 flex-1 text-xs font-medium ${
-          diff === null ? "text-gray-400" : above ? "text-emerald-600" : "text-rose-600"
+          diff === null ? "text-gray-400 dark:text-zinc-500" : above ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
         }`}>
           {`BEP ${bep.toFixed(0)}% 대비 ${diff !== null ? (diff >= 0 ? "+" : "") + diff.toFixed(1) + "%p" : "—"}`}
         </span>
         <span className={`shrink-0 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none ${
-          advice === "증액 가능" ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-          : advice === "광고비 주의" ? "border-amber-200 bg-amber-50 text-amber-700"
-          : "border-gray-200 bg-gray-50 text-gray-500"
+          advice === "증액 가능" ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-400"
+          : advice === "광고비 주의" ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-400"
+          : "border-gray-200 bg-gray-50 text-gray-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
         }`}>{advice}</span>
       </div>
     </div>
   );
 }
 
-function ProfitKpiCard({ totals }: { totals?: ProfitTotals }) {
+function ProfitKpiCard({ totals, delta }: { totals?: ProfitTotals; delta: number | null }) {
   const cp = totals?.contributionProfit ?? 0;
   const margin = totals?.contributionMargin ?? null;
   const status = totals?.status ?? "—";
   const positive = cp >= 0;
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4">
-      <div className="text-xs font-medium text-gray-500">공헌이익</div>
-      <div className={`mt-1.5 text-2xl font-bold tracking-tight ${positive ? "text-emerald-600" : "text-rose-600"}`}>
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="text-xs font-medium text-gray-500 dark:text-zinc-400">공헌이익</div>
+      <div className={`mt-1.5 text-2xl font-bold tracking-tight ${positive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
         {fmtKrw(cp)}
       </div>
+      <div className="mt-0.5">
+        <DeltaText delta={delta} />
+      </div>
       <div className="mt-2 flex items-center justify-between">
-        <span className="text-xs font-medium text-gray-500">
+        <span className="text-xs font-medium text-gray-500 dark:text-zinc-400">
           마진 {fmtPct(margin, 1)}
         </span>
         <span className={`rounded-md border px-2 py-0.5 text-[10px] font-medium ${
-          status === "흑자" ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-          : status === "적자" ? "border-rose-200 bg-rose-50 text-rose-700"
-          : "border-gray-200 bg-gray-50 text-gray-500"
+          status === "흑자" ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-400"
+          : status === "적자" ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-400"
+          : "border-gray-200 bg-gray-50 text-gray-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
         }`}>{status}</span>
       </div>
     </div>
@@ -584,30 +816,38 @@ function ProfitKpiCard({ totals }: { totals?: ProfitTotals }) {
 // 2. Mid charts
 // ────────────────────────────────────────────────────────────────────────────
 
-function DailyProfitChart({ rows }: { rows: DailyRow[] }) {
+function DailyProfitChart({ rows, pal }: { rows: DailyRow[]; pal: ChartPalette }) {
   const today = todayStr();
-  const finished = rows.filter((r) => r.date < today);
   const current = rows.find((r) => r.date === today);
+  const weekly = rows.length > WEEKLY_THRESHOLD;
 
-  const data = rows.map((r) => ({
-    date: r.date,
-    netRevenue: Math.round(r.netRevenue),
-    adSpend: Math.round(r.adSpend),
-    profitFinished: r.date < today ? Math.round(r.contributionProfit) : null,
-    profitToday: r.date === today ? Math.round(r.contributionProfit) : null,
-  }));
+  const data = weekly
+    ? bucketWeekly(rows).map((w) => ({
+        date: w.weekStart,
+        netRevenue: Math.round(w.netRevenue),
+        adSpend: Math.round(w.adSpend),
+        profitFinished: Math.round(w.contributionProfit),
+        profitToday: null as number | null,
+      }))
+    : rows.map((r) => ({
+        date: r.date,
+        netRevenue: Math.round(r.netRevenue),
+        adSpend: Math.round(r.adSpend),
+        profitFinished: r.date < today ? Math.round(r.contributionProfit) : null,
+        profitToday: r.date === today ? Math.round(r.contributionProfit) : null,
+      }));
 
   if (data.length === 0) {
-    return <p className="py-12 text-center text-sm text-gray-400">데이터 없음</p>;
+    return <p className="py-12 text-center text-sm text-gray-400 dark:text-zinc-500">데이터 없음</p>;
   }
 
   return (
     <div style={{ width: "100%", height: 320 }}>
       <ResponsiveContainer>
         <ComposedChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-          <CartesianGrid stroke="#f3f4f6" strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#9ca3af" }} tickLine={false} axisLine={false} />
-          <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} tickLine={false} axisLine={false}
+          <CartesianGrid stroke={pal.grid} strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="date" tick={{ fontSize: 10, fill: pal.axis }} tickLine={false} axisLine={false} />
+          <YAxis tick={{ fontSize: 11, fill: pal.axis }} tickLine={false} axisLine={false}
             tickFormatter={(v: number) => fmtKrwShort(v)} />
           <Tooltip
             formatter={(v: number, name: string) => {
@@ -619,63 +859,124 @@ function DailyProfitChart({ rows }: { rows: DailyRow[] }) {
                           : name;
               return [fmtKrw(v), label];
             }}
-            labelStyle={{ color: "#6b7280", fontSize: 12 }}
-            contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb" }}
+            labelFormatter={(label: string) => weekly ? `${label} 주` : label}
+            {...tooltipStyle(pal)}
           />
-          <ReferenceLine y={0} stroke="#9ca3af" strokeWidth={1} />
-          <Bar dataKey="netRevenue" fill="#e5e7eb" name="순매출" />
-          <Bar dataKey="adSpend" fill="#fda4af" name="광고비" />
-          <Line type="monotone" dataKey="profitFinished" stroke="#0f766e" strokeWidth={2.5} dot={false} name="공헌이익" />
-          <Line type="monotone" dataKey="profitToday" stroke="#9ca3af" strokeWidth={2} strokeDasharray="4 4" dot={{ r: 3, fill: "#9ca3af" }} name="당일" />
+          <ReferenceLine y={0} stroke={pal.refline} strokeWidth={1} />
+          <Bar dataKey="netRevenue" fill={pal.barNet} name="순매출" />
+          <Bar dataKey="adSpend" fill={pal.barAd} name="광고비" />
+          <Line type="monotone" dataKey="profitFinished" stroke={pal.profit} strokeWidth={2.5} dot={false} name="공헌이익" />
+          {!weekly && (
+            <Line type="monotone" dataKey="profitToday" stroke={pal.today} strokeWidth={2} strokeDasharray="4 4" dot={{ r: 3, fill: pal.today }} name="당일" />
+          )}
         </ComposedChart>
       </ResponsiveContainer>
-      {current && (
-        <p className="mt-2 text-[11px] text-gray-400">※ 회색 점선은 당일(미완료) 데이터</p>
-      )}
+      {weekly ? (
+        <p className="mt-2 text-[11px] text-gray-400 dark:text-zinc-500">※ 62일 초과 기간은 주(월요일 시작) 단위 합계로 표시</p>
+      ) : current ? (
+        <p className="mt-2 text-[11px] text-gray-400 dark:text-zinc-500">※ 회색 점선은 당일(미완료) 데이터</p>
+      ) : null}
     </div>
   );
 }
 
-function RoasChart({ rows }: { rows: DailyRow[] }) {
+function RoasChart({ rows, pal }: { rows: DailyRow[]; pal: ChartPalette }) {
   const today = todayStr();
-  const data = rows
-    .filter((r) => r.adSpend > 0 && r.date < today)
-    .map((r) => ({
-      date: r.date,
-      roas: r.roas !== null ? Number(r.roas.toFixed(1)) : null,
-      bep: Number(r.breakEvenRoas.toFixed(1)),
-    }));
+  const weekly = rows.length > WEEKLY_THRESHOLD;
+
+  const data = weekly
+    ? bucketWeekly(rows.filter((r) => r.date < today))
+        .filter((w) => w.adSpend > 0)
+        .map((w) => {
+          const roas = calculateRoas(w.netRevenue, w.adSpend);
+          const bep = calculateBreakEvenRoas(w.netRevenue, w.netRevenue - w.vat, w.pgFee, w.reportCost);
+          return {
+            date: w.weekStart,
+            roas: roas !== null ? Number(roas.toFixed(1)) : null,
+            bep: Number(bep.toFixed(1)),
+          };
+        })
+    : rows
+        .filter((r) => r.adSpend > 0 && r.date < today)
+        .map((r) => ({
+          date: r.date,
+          roas: r.roas !== null ? Number(r.roas.toFixed(1)) : null,
+          bep: Number(r.breakEvenRoas.toFixed(1)),
+        }));
 
   if (data.length === 0) {
-    return <p className="py-12 text-center text-sm text-gray-400">광고비 집행 일자가 없습니다.</p>;
+    return <p className="py-12 text-center text-sm text-gray-400 dark:text-zinc-500">광고비 집행 일자가 없습니다.</p>;
   }
 
   return (
     <div style={{ width: "100%", height: 320 }}>
       <ResponsiveContainer>
         <LineChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-          <CartesianGrid stroke="#f3f4f6" strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#9ca3af" }} tickLine={false} axisLine={false} />
-          <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} tickLine={false} axisLine={false}
+          <CartesianGrid stroke={pal.grid} strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="date" tick={{ fontSize: 10, fill: pal.axis }} tickLine={false} axisLine={false} />
+          <YAxis tick={{ fontSize: 11, fill: pal.axis }} tickLine={false} axisLine={false}
             tickFormatter={(v: number) => `${v.toFixed(0)}%`} />
-          <Tooltip formatter={(v: number, name: string) => [`${v.toFixed(1)}%`, name]} />
-          <Line type="monotone" dataKey="bep" stroke="#fb7185" strokeWidth={1.5} strokeDasharray="6 4" dot={false} name="손익분기 ROAS" />
-          <Line type="monotone" dataKey="roas" stroke="#0f766e" strokeWidth={2.5} dot={false} name="ROAS" />
+          <Tooltip formatter={(v: number, name: string) => [`${v.toFixed(1)}%`, name]}
+            labelFormatter={(label: string) => weekly ? `${label} 주` : label}
+            {...tooltipStyle(pal)} />
+          <Line type="monotone" dataKey="bep" stroke={pal.bep} strokeWidth={1.5} strokeDasharray="6 4" dot={false} name="손익분기 ROAS" />
+          <Line type="monotone" dataKey="roas" stroke={pal.profit} strokeWidth={2.5} dot={false} name="ROAS" />
         </LineChart>
       </ResponsiveContainer>
     </div>
   );
 }
 
-function CostDonut({ totals }: { totals?: ProfitTotals }) {
+function HourlyChart({
+  hourly, pal,
+}: { hourly: Array<{ hour: number; amount: number; count: number }>; pal: ChartPalette }) {
+  const total = hourly.reduce((a, h) => a + h.amount, 0);
+  if (hourly.length === 0 || total <= 0) {
+    return <p className="py-12 text-center text-sm text-gray-400 dark:text-zinc-500">데이터 없음</p>;
+  }
+  const peak = hourly.reduce((m, h) => (h.amount > m.amount ? h : m), hourly[0]);
+  const data = hourly.map((h) => ({ ...h, label: `${h.hour}시` }));
+
+  return (
+    <div>
+      <div style={{ width: "100%", height: 240 }}>
+        <ResponsiveContainer>
+          <BarChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+            <CartesianGrid stroke={pal.grid} strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 10, fill: pal.axis }} tickLine={false} axisLine={false} interval={2} />
+            <YAxis tick={{ fontSize: 11, fill: pal.axis }} tickLine={false} axisLine={false}
+              tickFormatter={(v: number) => fmtKrwShort(v)} />
+            <Tooltip
+              formatter={(v: number, name: string, entry: any) => {
+                const cnt = entry?.payload?.count ?? 0;
+                return [`${fmtKrw(v)} · ${NUM.format(cnt)}건`, "결제"];
+              }}
+              {...tooltipStyle(pal)}
+            />
+            <Bar dataKey="amount" name="결제금액" radius={[3, 3, 0, 0]}>
+              {data.map((d) => (
+                <Cell key={d.hour} fill={d.hour === peak.hour ? pal.hourly : pal.barNet} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="mt-2 text-[11px] text-gray-400 dark:text-zinc-500">
+        피크 시간대 <span className="font-medium text-gray-600 dark:text-zinc-300">{peak.hour}시</span> ({fmtKrw(peak.amount)} · {NUM.format(peak.count)}건) · 결제 시각(KST) 기준 합산
+      </p>
+    </div>
+  );
+}
+
+function CostDonut({ totals, pal }: { totals?: ProfitTotals; pal: ChartPalette }) {
   if (!totals || totals.netRevenue <= 0) {
-    return <p className="py-12 text-center text-sm text-gray-400">데이터 없음</p>;
+    return <p className="py-12 text-center text-sm text-gray-400 dark:text-zinc-500">데이터 없음</p>;
   }
   const items = [
-    { label: "VAT", value: totals.vat, color: "#94a3b8" },
-    { label: "PG 수수료", value: totals.pgFee, color: "#a78bfa" },
-    { label: "리포트 생성원가", value: totals.reportCost, color: "#fbbf24" },
-    { label: "광고비", value: totals.adSpend, color: "#fb7185" },
+    { label: "VAT", value: totals.vat, color: pal.donut[0] },
+    { label: "PG 수수료", value: totals.pgFee, color: pal.donut[1] },
+    { label: "리포트 생성원가", value: totals.reportCost, color: pal.donut[2] },
+    { label: "광고비", value: totals.adSpend, color: pal.donut[3] },
   ];
   const totalCost = items.reduce((a, b) => a + b.value, 0);
   const profitPositive = totals.contributionProfit >= 0;
@@ -685,15 +986,15 @@ function CostDonut({ totals }: { totals?: ProfitTotals }) {
       <div className="relative h-44 w-full">
         <ResponsiveContainer>
           <PieChart>
-            <Pie data={items} dataKey="value" nameKey="label" innerRadius={50} outerRadius={75} stroke="white" strokeWidth={2}>
+            <Pie data={items} dataKey="value" nameKey="label" innerRadius={50} outerRadius={75} stroke={pal.donutStroke} strokeWidth={2}>
               {items.map((it) => <Cell key={it.label} fill={it.color} />)}
             </Pie>
-            <Tooltip formatter={(v: number, n: string) => [fmtKrw(v), n]} />
+            <Tooltip formatter={(v: number, n: string) => [fmtKrw(v), n]} {...tooltipStyle(pal)} />
           </PieChart>
         </ResponsiveContainer>
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <span className="text-[10px] text-gray-400">총 비용</span>
-          <span className="text-sm font-semibold text-gray-900">{fmtKrw(totalCost)}</span>
+          <span className="text-[10px] text-gray-400 dark:text-zinc-500">총 비용</span>
+          <span className="text-sm font-semibold text-gray-900 dark:text-zinc-100">{fmtKrw(totalCost)}</span>
         </div>
       </div>
       <div className="space-y-2 text-xs">
@@ -702,16 +1003,16 @@ function CostDonut({ totals }: { totals?: ProfitTotals }) {
           return (
             <div key={it.label} className="flex items-center gap-2">
               <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: it.color }} />
-              <span className="flex-1 text-gray-600">{it.label}</span>
-              <span className="tabular-nums text-gray-900">{fmtKrw(it.value)}</span>
-              <span className="w-12 text-right tabular-nums text-gray-400">{pct.toFixed(1)}%</span>
+              <span className="flex-1 text-gray-600 dark:text-zinc-300">{it.label}</span>
+              <span className="tabular-nums text-gray-900 dark:text-zinc-100">{fmtKrw(it.value)}</span>
+              <span className="w-12 text-right tabular-nums text-gray-400 dark:text-zinc-500">{pct.toFixed(1)}%</span>
             </div>
           );
         })}
-        <div className="mt-2 border-t border-gray-100 pt-2">
+        <div className="mt-2 border-t border-gray-100 pt-2 dark:border-zinc-800">
           <div className="flex items-center justify-between">
-            <span className="text-gray-500">공헌이익</span>
-            <span className={`font-semibold ${profitPositive ? "text-emerald-600" : "text-rose-600"}`}>
+            <span className="text-gray-500 dark:text-zinc-400">공헌이익</span>
+            <span className={`font-semibold ${profitPositive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
               {fmtKrw(totals.contributionProfit)}
             </span>
           </div>
@@ -734,7 +1035,7 @@ function InsightPanel({
   settings?: { pgFeeRate: number; reportCostPerUnit: number };
 }) {
   if (!totals) {
-    return <p className="py-8 text-center text-sm text-gray-400">데이터 없음</p>;
+    return <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">데이터 없음</p>;
   }
   const today = todayStr();
   const finished = daily.filter((d) => d.date < today);
@@ -775,18 +1076,18 @@ function InsightPanel({
         {lines.map((l, i) => (
           <li key={i} className="flex items-start gap-2">
             <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${
-              l.tone === "good" ? "bg-emerald-500" : l.tone === "warn" ? "bg-rose-500" : "bg-gray-400"
+              l.tone === "good" ? "bg-emerald-500" : l.tone === "warn" ? "bg-rose-500" : "bg-gray-400 dark:bg-zinc-500"
             }`} />
             <span className={
-              l.tone === "good" ? "text-emerald-700"
-              : l.tone === "warn" ? "text-rose-700"
-              : "text-gray-600"
+              l.tone === "good" ? "text-emerald-700 dark:text-emerald-400"
+              : l.tone === "warn" ? "text-rose-700 dark:text-rose-400"
+              : "text-gray-600 dark:text-zinc-300"
             }>{l.text}</span>
           </li>
         ))}
       </ul>
       {settings && (
-        <div className="border-t border-gray-100 pt-3 text-[11px] text-gray-400">
+        <div className="border-t border-gray-100 pt-3 text-[11px] text-gray-400 dark:border-zinc-800 dark:text-zinc-500">
           PG {(settings.pgFeeRate * 100).toFixed(2)}% · 리포트 {fmtKrw(settings.reportCostPerUnit)}/건 · 순매출 {fmtKrw(sourceNetRevenue)}
         </div>
       )}
@@ -800,7 +1101,7 @@ function InsightPanel({
 
 function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
   if (!loading && rows.length === 0) {
-    return <p className="py-8 text-center text-sm text-gray-400">데이터 없음</p>;
+    return <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">데이터 없음</p>;
   }
   const sorted = [...rows].sort((a, b) => b.date.localeCompare(a.date));
   const today = todayStr();
@@ -809,7 +1110,7 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left text-xs text-gray-500">
+          <tr className="text-left text-xs text-gray-500 dark:text-zinc-400">
             <th className="py-2 pr-3 font-medium">날짜</th>
             <th className="py-2 pr-3 text-right font-medium">순매출</th>
             <th className="py-2 pr-3 text-right font-medium">광고비</th>
@@ -818,15 +1119,15 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
             <th className="py-2 text-right font-medium">ROAS</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-100">
+        <tbody className="divide-y divide-gray-100 dark:divide-zinc-800">
           {sorted.map((r) => {
-            const profitColor = r.contributionProfit > 0 ? "text-emerald-600"
-                              : r.contributionProfit < 0 ? "text-rose-600"
-                              : "text-gray-500";
+            const profitColor = r.contributionProfit > 0 ? "text-emerald-600 dark:text-emerald-400"
+                              : r.contributionProfit < 0 ? "text-rose-600 dark:text-rose-400"
+                              : "text-gray-500 dark:text-zinc-400";
             const belowBep = r.roas !== null && r.roas < r.breakEvenRoas && r.adSpend > 0;
             const isToday = r.date === today;
             return (
-              <tr key={r.date} className={`${belowBep ? "bg-rose-50/40" : ""} ${isToday ? "text-gray-400" : "text-gray-700"}`}>
+              <tr key={r.date} className={`${belowBep ? "bg-rose-50/40 dark:bg-rose-950/20" : ""} ${isToday ? "text-gray-400 dark:text-zinc-500" : "text-gray-700 dark:text-zinc-300"}`}>
                 <td className="py-2 pr-3 font-mono text-xs">
                   {r.date}{isToday && <span className="ml-1 text-[10px]">(당일)</span>}
                 </td>
@@ -836,7 +1137,7 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
                   {fmtKrw(r.contributionProfit)}
                 </td>
                 <td className="py-2 pr-3 text-right tabular-nums">{fmtPct(r.contributionMargin)}</td>
-                <td className={`py-2 text-right tabular-nums ${belowBep ? "text-rose-600 font-medium" : ""}`}>
+                <td className={`py-2 text-right tabular-nums ${belowBep ? "text-rose-600 font-medium dark:text-rose-400" : ""}`}>
                   {fmtPct(r.roas, 0)}
                 </td>
               </tr>
@@ -844,7 +1145,7 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
           })}
         </tbody>
       </table>
-      <p className="mt-3 text-[11px] text-gray-400">※ 손익분기 ROAS 미만 행은 옅은 적색 배경 · 당일(미완료) 은 회색</p>
+      <p className="mt-3 text-[11px] text-gray-400 dark:text-zinc-500">※ 손익분기 ROAS 미만 행은 옅은 적색 배경 · 당일(미완료) 은 회색</p>
     </div>
   );
 }
@@ -861,15 +1162,15 @@ function formatBudget(c: CampaignRow): string {
 function CampaignTable({
   campaigns, loading, error,
 }: { campaigns: CampaignRow[]; loading: boolean; error: string | null }) {
-  if (error) return <p className="py-8 text-center text-sm text-amber-700">{error}</p>;
+  if (error) return <p className="py-8 text-center text-sm text-amber-700 dark:text-amber-400">{error}</p>;
   if (!loading && campaigns.length === 0) {
-    return <p className="py-8 text-center text-sm text-gray-400">광고 캠페인 데이터가 없습니다.</p>;
+    return <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">광고 캠페인 데이터가 없습니다.</p>;
   }
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left text-xs text-gray-500">
+          <tr className="text-left text-xs text-gray-500 dark:text-zinc-400">
             <th className="py-2 pr-4 font-medium">캠페인</th>
             <th className="py-2 pr-3 text-right font-medium">결과</th>
             <th className="py-2 pr-3 text-right font-medium">CPA</th>
@@ -882,12 +1183,12 @@ function CampaignTable({
             <th className="py-2 text-right font-medium">CPM</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-100">
+        <tbody className="divide-y divide-gray-100 dark:divide-zinc-800">
           {campaigns.map((c) => (
-            <tr key={c.campaignId} className="text-gray-700">
+            <tr key={c.campaignId} className="text-gray-700 dark:text-zinc-300">
               <td className="py-2 pr-4">
                 <div className="truncate max-w-[260px]" title={c.campaignName}>{c.campaignName}</div>
-                <div className="text-[10px] text-gray-400">{c.campaignId}</div>
+                <div className="text-[10px] text-gray-400 dark:text-zinc-500">{c.campaignId}</div>
               </td>
               <td className="py-2 pr-3 text-right tabular-nums">
                 {c.purchases > 0 ? NUM.format(c.purchases) : "—"}
@@ -918,21 +1219,21 @@ function ChannelTopList({
   channels,
 }: { channels: Array<{ label: string; net: number; pct: number; count: number }> }) {
   if (channels.length === 0) {
-    return <p className="py-8 text-center text-sm text-gray-400">데이터 없음</p>;
+    return <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">데이터 없음</p>;
   }
   return (
     <div className="space-y-3">
       {channels.map((c, i) => (
         <div key={c.label} className="flex items-center gap-3">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-gray-900 text-xs font-bold text-white">{i + 1}</div>
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-gray-900 text-xs font-bold text-white dark:bg-zinc-100 dark:text-zinc-900">{i + 1}</div>
           <div className="flex-1">
-            <div className="text-sm font-medium text-gray-900">{c.label}</div>
-            <div className="text-xs text-gray-500">{fmtKrw(c.net)} · {NUM.format(c.count)}건</div>
+            <div className="text-sm font-medium text-gray-900 dark:text-zinc-100">{c.label}</div>
+            <div className="text-xs text-gray-500 dark:text-zinc-400">{fmtKrw(c.net)} · {NUM.format(c.count)}건</div>
           </div>
-          <div className="w-14 rounded-md bg-portone-50 px-2 py-1 text-right text-xs font-medium text-portone-600">
+          <div className="w-14 rounded-md bg-portone-50 px-2 py-1 text-right text-xs font-medium text-portone-600 dark:bg-portone/10 dark:text-portone">
             {c.pct.toFixed(1)}%
           </div>
-          <div className="hidden h-2 flex-1 max-w-[120px] rounded bg-portone-50 md:block">
+          <div className="hidden h-2 flex-1 max-w-[120px] rounded bg-portone-50 md:block dark:bg-portone/10">
             <div className="h-2 rounded bg-portone" style={{ width: `${Math.min(100, c.pct)}%` }} />
           </div>
         </div>
