@@ -268,6 +268,7 @@ type MonthlyRow = {
   month: string; // YYYY-MM
   netRevenue: number;
   adSpend: number;
+  reportCount: number;
   vat: number;
   pgFee: number;
   reportCost: number;
@@ -279,9 +280,10 @@ function bucketMonthly(rows: DailyRow[]): MonthlyRow[] {
   const map = new Map<string, Omit<MonthlyRow, "month" | "roas">>();
   for (const r of rows) {
     const key = r.date.slice(0, 7);
-    const m = map.get(key) || { netRevenue: 0, adSpend: 0, vat: 0, pgFee: 0, reportCost: 0, contributionProfit: 0 };
+    const m = map.get(key) || { netRevenue: 0, adSpend: 0, reportCount: 0, vat: 0, pgFee: 0, reportCost: 0, contributionProfit: 0 };
     m.netRevenue += r.netRevenue;
     m.adSpend += r.adSpend;
+    m.reportCount += r.reportCount;
     m.vat += r.vat;
     m.pgFee += r.pgFee;
     m.reportCost += r.reportCost;
@@ -710,6 +712,7 @@ function KpiStrip({
         delta={reportDelta}
         deltaInverse
         sparkData={finishedDaily.map((d) => d.reportCost)}
+        subText={totals ? `판매 ${NUM.format(totals.reportCount)}건 기준` : undefined}
         pal={pal}
       />
       <RoasKpiCard totals={totals} />
@@ -915,6 +918,7 @@ function MonthlyTrendChart({ monthly, pal }: { monthly: MonthlyRow[]; pal: Chart
     label: monthLabel(m.month),
     netRevenue: Math.round(m.netRevenue),
     adSpend: Math.round(m.adSpend),
+    reportCount: m.reportCount,
     contributionProfit: Math.round(m.contributionProfit),
     roas: m.roas !== null ? Number(m.roas.toFixed(1)) : null,
   }));
@@ -964,6 +968,14 @@ function MonthlyTrendChart({ monthly, pal }: { monthly: MonthlyRow[]; pal: Chart
               </td>
               {data.map((d) => (
                 <td key={d.label} className="py-1.5 pr-3 text-right tabular-nums">{NUM.format(d.netRevenue)}</td>
+              ))}
+            </tr>
+            <tr className="text-gray-700 dark:text-zinc-300">
+              <td className="py-1.5 pr-3">
+                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: pal.axis }} />판매건수</span>
+              </td>
+              {data.map((d) => (
+                <td key={d.label} className="py-1.5 pr-3 text-right tabular-nums">{NUM.format(d.reportCount)}</td>
               ))}
             </tr>
             <tr className="text-gray-700 dark:text-zinc-300">
@@ -1162,6 +1174,9 @@ function PeriodSummaryCard({
   const avgProfit = finished.length > 0
     ? finished.reduce((a, d) => a + d.contributionProfit, 0) / finished.length
     : 0;
+  const avgCount = finished.length > 0
+    ? finished.reduce((a, d) => a + d.reportCount, 0) / finished.length
+    : 0;
   const bestDay = finished.length > 0
     ? finished.reduce((m, d) => (d.contributionProfit > m.contributionProfit ? d : m), finished[0])
     : null;
@@ -1169,6 +1184,7 @@ function PeriodSummaryCard({
   const rows: Array<{ label: string; value: string; tone?: "good" | "warn" }> = [
     { label: "기간", value: `${daily.length}일` },
     { label: "결제매출", value: fmtKrw(sourceNetRevenue) },
+    { label: "리포트 판매건수", value: `${NUM.format(totals.reportCount)}건 · 일평균 ${avgCount.toFixed(1)}건` },
     { label: "광고비", value: fmtKrw(totals.adSpend) },
     { label: "공헌이익", value: fmtKrw(totals.contributionProfit), tone: totals.contributionProfit >= 0 ? "good" : "warn" },
     { label: "일평균 공헌이익", value: fmtKrw(avgProfit) },
