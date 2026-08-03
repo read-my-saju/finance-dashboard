@@ -915,6 +915,7 @@ function MonthlyTrendChart({ monthly, pal }: { monthly: MonthlyRow[]; pal: Chart
     label: monthLabel(m.month),
     netRevenue: Math.round(m.netRevenue),
     adSpend: Math.round(m.adSpend),
+    contributionProfit: Math.round(m.contributionProfit),
     roas: m.roas !== null ? Number(m.roas.toFixed(1)) : null,
   }));
 
@@ -971,6 +972,18 @@ function MonthlyTrendChart({ monthly, pal }: { monthly: MonthlyRow[]; pal: Chart
               </td>
               {data.map((d) => (
                 <td key={d.label} className="py-1.5 pr-3 text-right tabular-nums">{NUM.format(d.adSpend)}</td>
+              ))}
+            </tr>
+            <tr className="text-gray-700 dark:text-zinc-300">
+              <td className="py-1.5 pr-3">
+                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: pal.profit }} />공헌이익</span>
+              </td>
+              {data.map((d) => (
+                <td key={d.label} className={`py-1.5 pr-3 text-right font-medium tabular-nums ${
+                  d.contributionProfit > 0 ? "text-emerald-600 dark:text-emerald-400"
+                  : d.contributionProfit < 0 ? "text-rose-600 dark:text-rose-400"
+                  : ""
+                }`}>{NUM.format(d.contributionProfit)}</td>
               ))}
             </tr>
             <tr className="text-gray-700 dark:text-zinc-300">
