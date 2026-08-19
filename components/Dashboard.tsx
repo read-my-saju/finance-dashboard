@@ -1344,16 +1344,23 @@ function CampaignTop10({ campaigns, bep }: { campaigns: CampaignRow[]; bep: numb
   }
   const top10 = [...campaigns].sort((a, b) => b.spend - a.spend).slice(0, 10);
   const maxSpend = Math.max(...top10.map((c) => c.spend), 1);
+  const prefix = commonCampaignPrefix(top10.map((c) => c.campaignName));
 
   return (
     <div className="space-y-3">
+      {prefix && (
+        <p className="text-[11px] text-gray-400 dark:text-zinc-500">
+          공통 접두어 <span className="font-medium text-gray-500 dark:text-zinc-400">{prefix}</span>
+        </p>
+      )}
       {top10.map((c) => {
         const pct = (c.spend / maxSpend) * 100;
         const aboveBep = c.roas !== null && c.roas >= bep;
+        const shortName = prefix ? (c.campaignName.slice(prefix.length) || "(기본)") : c.campaignName;
         return (
           <div key={c.campaignId} className="flex items-center gap-3">
-            <div className="w-28 shrink-0 truncate text-xs text-gray-600 dark:text-zinc-300 sm:w-40" title={c.campaignName}>
-              {c.campaignName}
+            <div className="w-32 shrink-0 truncate text-xs text-gray-600 dark:text-zinc-300 sm:w-44" title={c.campaignName}>
+              {shortName}
             </div>
             <div className="h-2 flex-1 rounded-full bg-gray-100 dark:bg-zinc-800">
               <div className="h-2 rounded-full bg-portone" style={{ width: `${pct}%` }} />
@@ -1373,6 +1380,31 @@ function CampaignTop10({ campaigns, bep }: { campaigns: CampaignRow[]; bep: numb
       })}
     </div>
   );
+}
+
+// top10 캠페인 이름들의 최장 공통 접두어를 단어 경계(_ - 공백)에서 끊어 반환.
+// 캠페인 1개거나 구분자를 포함한 공통 접두어가 없으면 "" (축약 안 함).
+function commonCampaignPrefix(names: string[]): string {
+  if (names.length < 2) return "";
+  const isSep = (ch: string) => ch === "_" || ch === "-" || ch === " ";
+  let lcp = names[0];
+  for (let i = 1; i < names.length; i++) {
+    const n = names[i];
+    let k = 0;
+    while (k < lcp.length && k < n.length && lcp[k] === n[k]) k++;
+    lcp = lcp.slice(0, k);
+    if (!lcp) break;
+  }
+  // LCP가 어떤 이름에서 단어 중간(다음 문자가 구분자도 문자열 끝도 아님)에서 끊겼으면,
+  // 마지막 구분자 앞까지 줄여 단어 경계를 맞춘다.
+  const cleanBoundary = names.every((n) => n.length === lcp.length || isSep(n[lcp.length]));
+  if (!cleanBoundary) {
+    let end = lcp.length;
+    while (end > 0 && !isSep(lcp[end - 1])) end--; // 마지막 구분자 다음 위치
+    lcp = lcp.slice(0, Math.max(end - 1, 0)); // 구분자 자체 제외
+  }
+  while (lcp.length && isSep(lcp[lcp.length - 1])) lcp = lcp.slice(0, -1); // 끝 구분자 정리
+  return /[_\-\s]/.test(lcp) ? lcp : ""; // 구분자 없는 짧은 접두어는 축약 이득 없음
 }
 
 function formatBudget(c: CampaignRow): string {
