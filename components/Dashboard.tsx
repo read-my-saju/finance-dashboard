@@ -450,10 +450,14 @@ export default function Dashboard() {
 
       {/* ── 2.5. 월별 추이 (31일 초과 범위) ─────────────────────────────── */}
       {monthly.length >= 2 && (daily?.daily.length ?? 0) > 31 && (
-        <div className="mt-4">
+        <div className="mt-4 space-y-4">
           <Card>
             <CardHeader title="월별 매출 · 광고비 · ROAS 추이" badge={`${monthly.length}개월`} />
             <MonthlyTrendChart monthly={monthly} pal={pal} />
+          </Card>
+          <Card>
+            <CardHeader title="월별 공헌이익 추이" badge={`${monthly.length}개월 · 전월 대비`} />
+            <MonthlyContributionChart monthly={monthly} pal={pal} />
           </Card>
         </div>
       )}
@@ -1014,6 +1018,53 @@ function MonthlyTrendChart({ monthly, pal }: { monthly: MonthlyRow[]; pal: Chart
       <p className="mt-2 text-[11px] text-gray-400 dark:text-zinc-500">
         ※ 선택 기간 내 일자만 합산 — 시작·끝 달은 부분 월 데이터일 수 있음
       </p>
+    </div>
+  );
+}
+
+// 월별 공헌이익 막대 + 전월 대비 증감. monthly 는 bucketMonthly 결과 재사용.
+function ContribTooltip({ active, payload, pal }: { active?: boolean; payload?: any[]; pal: ChartPalette }) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0].payload as { label: string; contributionProfit: number; delta: number | null };
+  const up = (p.delta ?? 0) >= 0;
+  return (
+    <div style={{ background: pal.tooltipBg, border: `1px solid ${pal.tooltipBorder}`, borderRadius: 8, padding: "8px 10px", fontSize: 12 }}>
+      <div style={{ color: pal.tooltipLabel, marginBottom: 4 }}>{p.label}</div>
+      <div style={{ color: p.contributionProfit >= 0 ? pal.profit : pal.bep }}>공헌이익 {fmtKrw(p.contributionProfit)}</div>
+      {p.delta !== null && (
+        <div style={{ color: up ? pal.profit : pal.bep }}>
+          전월 대비 {up ? "+" : "−"}{fmtKrw(Math.abs(p.delta))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MonthlyContributionChart({ monthly, pal }: { monthly: MonthlyRow[]; pal: ChartPalette }) {
+  const data = monthly.map((m, i) => {
+    const cp = Math.round(m.contributionProfit);
+    const prev = i > 0 ? Math.round(monthly[i - 1].contributionProfit) : null;
+    return { label: monthLabel(m.month), contributionProfit: cp, delta: prev === null ? null : cp - prev };
+  });
+
+  return (
+    <div style={{ width: "100%", height: 300 }}>
+      <ResponsiveContainer>
+        <BarChart data={data} margin={{ top: 22, right: 8, left: 0, bottom: 5 }}>
+          <CartesianGrid stroke={pal.grid} strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: pal.axis }} tickLine={false} axisLine={false} />
+          <YAxis tick={{ fontSize: 11, fill: pal.axis }} tickLine={false} axisLine={false}
+            tickFormatter={(v: number) => fmtKrwShort(v)} />
+          <ReferenceLine y={0} stroke={pal.refline} />
+          <Tooltip content={<ContribTooltip pal={pal} />} cursor={{ fill: pal.grid, opacity: 0.4 }} />
+          <Bar dataKey="contributionProfit" name="공헌이익" radius={[3, 3, 0, 0]}>
+            {data.map((d, i) => (
+              <Cell key={i} fill={d.contributionProfit >= 0 ? pal.profit : pal.bep} />
+            ))}
+            <LabelList dataKey="contributionProfit" position="top" formatter={(v: number) => fmtKrwShort(v)} fontSize={10} fill={pal.axis} />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }
