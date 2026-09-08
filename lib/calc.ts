@@ -5,7 +5,7 @@
  *   결제매출(netRevenue)     = PortOne 콘솔 순거래액 (VAT 포함, 단일 진실)
  *   VAT                      = 결제매출 / 11
  *   VAT 제외 매출(exVat)     = 결제매출 - VAT
- *   PG수수료(pgFee)          = 결제매출(VAT 포함 실제 결제금액) × 요율(결제일별: ~6/18 3.52% 일괄 / 6/19~ 결제수단별)
+ *   PG수수료(pgFee)          = 결제매출(VAT 포함 실제 결제금액) × 요율(결제일별: ~6/18 3.52% 일괄 / 6/19~ 결제수단별 / 8/14~ 실효 2.56%)
  *                              (PG 는 결제금액 전체에 요율을 매김. 토스 정산: payOutAmount = amount − fee.
  *                               수수료 부가세는 매입세액공제 대상이라 원가에 넣지 않음 — 2026-09-08 수정)
  *   리포트 생성원가          = 결제완료 건수 × 건당원가(결제일별: ~2026-04 250 / 2026-05 266 / 2026-06 390 / 2026-07~ 870)
@@ -64,6 +64,15 @@ export const PG_FEE_RATE_NAVER = 0.033;
 export const PG_FEE_RATE_DEFAULT = 0.032;
 export const PG_FEE_CUTOVER = "2026-06-19";   // 토스페이먼츠 전환일 (이 날부터 결제수단별 요율)
 
+/**
+ * 2026-08-14 부터 카드·간편결제 실효요율 하락 (토스 정산 메일 역산, 2026-09-08 확인).
+ *   6/19~8/13: 매일 정확히 3.20% (매출액 대비 PG이용료)
+ *   8/14~9/07: 12일 합산 2.563% (일별 2.49~2.66%, 간편/카드 구분해도 오차 개선 없음 → 혼합요율 단일 적용)
+ *   원인 추정: 영세·중소 가맹점 카드 우대수수료 적용. 계약 요율은 상점관리자 > 이용정보에서 확인 필요.
+ */
+export const PG_FEE_CUTOVER_2 = "2026-08-14";
+export const PG_FEE_RATE_FROM_2026_08_14 = 0.0256;
+
 export function pgFeeRateForMethod(label: string): number {
   if (label === "계좌이체" || label === "가상계좌") return PG_FEE_RATE_TRANSFER;
   if (label === "Npay") return PG_FEE_RATE_NAVER;
@@ -73,10 +82,13 @@ export function pgFeeRateForMethod(label: string): number {
 /**
  * 결제일(KST, YYYY-MM-DD) 기준 PG 수수료율.
  * 6/19 이전 결제는 PortOne 계약 요율 3.52% 일괄, 이후는 결제수단별 요율.
+ * 8/14 이후 카드·간편결제(기본 요율 대상)는 실효 2.56%. 이체·Npay 는 계약 요율 유지.
  */
 export function pgFeeRateForMethodOnDate(label: string, date: string): number {
   if (date < PG_FEE_CUTOVER) return DEFAULT_PG_FEE_RATE;
-  return pgFeeRateForMethod(label);
+  const rate = pgFeeRateForMethod(label);
+  if (date >= PG_FEE_CUTOVER_2 && rate === PG_FEE_RATE_DEFAULT) return PG_FEE_RATE_FROM_2026_08_14;
+  return rate;
 }
 export const BREAK_EVEN_ROAS_FALLBACK = 118;  // 매출이 원가(PG+리포트)도 못 덮는 예외 시 fallback (% 단위)
 
