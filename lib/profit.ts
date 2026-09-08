@@ -96,11 +96,10 @@ function aggregatePortoneByDay(
     m.set(date, cur);
   }
 
-  // 순매출(VAT 제외) × 요율(결제일 기준: ~6/18 3.52% / 6/19~ 결제수단별) = 그 결제의 PG수수료.
+  // 실제 결제금액(VAT 포함) × 요율(결제일 기준: ~6/18 3.52% / 6/19~ 결제수단별) = 그 결제의 PG수수료.
   function feeFor(payment: AnyPayment, netAmount: number, date: string): number {
     if (netAmount <= 0) return 0;
-    const exVat = calculateRevenueExVat(netAmount);
-    return exVat * pgFeeRateForMethodOnDate(methodLabel(payment as any), date);
+    return netAmount * pgFeeRateForMethodOnDate(methodLabel(payment as any), date);
   }
 
   for (const raw of payments) {
@@ -235,9 +234,8 @@ export function computeProfit(args: {
     pgFeeOverride: totalPgFee,             // 결제수단별 요율 합산값으로 기간 PG수수료 고정
   });
 
-  // 화면 "PG X%" 표기는 실효 혼합요율(합산 수수료 / VAT제외 매출)로 노출.
-  const periodExVat = calculateRevenueExVat(totalNetRevenue);
-  const effectivePgRate = periodExVat > 0 ? totalPgFee / periodExVat : pgFeeRate;
+  // 화면 "PG X%" 표기는 실효 혼합요율(합산 수수료 / 결제매출(VAT 포함))로 노출.
+  const effectivePgRate = totalNetRevenue > 0 ? totalPgFee / totalNetRevenue : pgFeeRate;
 
   return {
     range: args.range,
