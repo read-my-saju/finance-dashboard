@@ -5,7 +5,9 @@
  *   결제매출(netRevenue)     = PortOne 콘솔 순거래액 (VAT 포함, 단일 진실)
  *   VAT                      = 결제매출 / 11
  *   VAT 제외 매출(exVat)     = 결제매출 - VAT
- *   PG수수료(pgFee)          = VAT 제외 매출 × 요율(결제일별: ~6/18 3.52% 일괄 / 6/19~ 결제수단별)
+ *   PG수수료(pgFee)          = 결제매출(VAT 포함 실제 결제금액) × 요율(결제일별: ~6/18 3.52% 일괄 / 6/19~ 결제수단별)
+ *                              (PG 는 결제금액 전체에 요율을 매김. 토스 정산: payOutAmount = amount − fee.
+ *                               수수료 부가세는 매입세액공제 대상이라 원가에 넣지 않음 — 2026-09-08 수정)
  *   리포트 생성원가          = 결제완료 건수 × 건당원가(결제일별: ~2026-04 250 / 2026-05 266 / 2026-06 390 / 2026-07~ 870)
  *   ROAS                     = 결제매출(VAT 포함) / 광고비 × 100
  *   손익분기 ROAS (BEP)      = 결제매출(VAT포함) / 손익분기광고비 × 100 (원가구조 기반 동적)
@@ -24,14 +26,14 @@ export type CalcInput = {
   pgFeeRate: number;        // 0.0352 같은 비율
   reportCostPerUnit: number; // 250 같은 단가
   reportCostOverride?: number; // 날짜별 단가로 합산한 reportCost 직접 지정 (있으면 reportCount×perUnit 대신 사용)
-  pgFeeOverride?: number;      // 결제수단별로 합산한 PG수수료 직접 지정 (있으면 revenueExVat×rate 대신 사용)
+  pgFeeOverride?: number;      // 결제수단별로 합산한 PG수수료 직접 지정 (있으면 netRevenue×rate 대신 사용)
 };
 
 export type CalcResult = {
   netRevenue: number;        // VAT 포함 결제매출 (PortOne 순거래액)
   vat: number;
   revenueExVat: number;      // VAT 제외 매출
-  pgFee: number;             // VAT 제외 매출 × PG율
+  pgFee: number;             // 결제매출(VAT 포함) × PG율
   reportCost: number;        // 결제 건수 × 단가
   reportCostRate: number;    // 리포트원가 / VAT 제외 매출 (참고용)
   adSpend: number;
@@ -61,6 +63,14 @@ export const PG_FEE_RATE_TRANSFER = 0.020;
 export const PG_FEE_RATE_NAVER = 0.033;
 export const PG_FEE_RATE_DEFAULT = 0.032;
 export const PG_FEE_CUTOVER = "2026-06-19";   // 토스페이먼츠 전환일 (이 날부터 결제수단별 요율)
+
+/**
+ * 참고 (2026-09-08 토스 상점관리자 > 정산내역 > 건별로 확인):
+ *   6/19~8/13 은 전 결제 3.20%. 8/14 부터 영세 가맹점 우대수수료가 적용돼 카드사 직접 결제(삼성·신한 등)는
+ *   2.1%, 간편결제(카카오페이·토스페이 3.2%, 네이버페이 3.3%)는 그대로 — 12일 합산 실효 약 2.56%.
+ *   토스 거래조회로는 카드 직접/간편결제를 정확히 못 가르므로 사장님 결정으로 3.2% 일괄 유지 (보수적:
+ *   8/14 이후 수수료를 실제보다 약 25% 높게 잡음). 정확히 맞추려면 토스 정산 API 연동 필요.
+ */
 
 export function pgFeeRateForMethod(label: string): number {
   if (label === "계좌이체" || label === "가상계좌") return PG_FEE_RATE_TRANSFER;
@@ -108,8 +118,9 @@ export function calculateRevenueExVat(netRevenue: number): number {
   return netRevenue - calculateVat(netRevenue);
 }
 
-export function calculatePgFee(revenueExVat: number, rate: number): number {
-  return revenueExVat * rate;
+/** PG 수수료 = 실제 결제금액(VAT 포함) × 요율. VAT 제외 매출을 넣으면 안 됨. */
+export function calculatePgFee(paidAmount: number, rate: number): number {
+  return paidAmount * rate;
 }
 
 export function calculateReportCost(reportCount: number, perUnit: number): number {
@@ -163,7 +174,7 @@ export function calc(input: CalcInput): CalcResult {
   const netRevenue = Math.max(0, input.netRevenue);
   const vat = calculateVat(netRevenue);
   const revenueExVat = calculateRevenueExVat(netRevenue);
-  const pgFee = input.pgFeeOverride ?? calculatePgFee(revenueExVat, input.pgFeeRate);
+  const pgFee = input.pgFeeOverride ?? calculatePgFee(netRevenue, input.pgFeeRate);
   const reportCost = input.reportCostOverride ?? calculateReportCost(input.reportCount, input.reportCostPerUnit);
   const reportCostRate = revenueExVat > 0 ? reportCost / revenueExVat : 0;
   const adSpend = input.adSpend;
