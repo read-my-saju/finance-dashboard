@@ -39,13 +39,13 @@ assert.equal(pgFeeRateForMethodOnDate("신용카드", "2026-08-13"), 0.032);
 assert.equal(pgFeeRateForMethodOnDate("간편결제", "2026-09-01"), 0.032);
 assert.equal(pgFeeRateForMethodOnDate("계좌이체", "2026-09-01"), 0.02);
 
-// 리포트 건당 원가(월별 실사용): 7월 870 / 8월 760 / 9월 1,600 / 10월~ 1,610원
+// 리포트 건당 원가(월별 실사용): 7월 870 / 8월 750 / 9월 1,590 / 10월~ 1,590원
 assert.equal(reportCostPerUnitForDate("2026-07-31"), 870);
-assert.equal(reportCostPerUnitForDate("2026-08-01"), 760);
-assert.equal(reportCostPerUnitForDate("2026-08-31"), 760);
-assert.equal(reportCostPerUnitForDate("2026-09-01"), 1600);
-assert.equal(reportCostPerUnitForDate("2026-09-30"), 1600);
-assert.equal(reportCostPerUnitForDate("2026-10-01"), 1610);
+assert.equal(reportCostPerUnitForDate("2026-08-01"), 750);
+assert.equal(reportCostPerUnitForDate("2026-08-31"), 750);
+assert.equal(reportCostPerUnitForDate("2026-09-01"), 1590);
+assert.equal(reportCostPerUnitForDate("2026-09-30"), 1590);
+assert.equal(reportCostPerUnitForDate("2026-10-01"), 1590);
 
 // 실제 정산 메일 재현: 매출일 2026-08-13 매출액 1,778,260 → PG이용료 56,978 (오차 1% 이내)
 const s = computeProfit({
