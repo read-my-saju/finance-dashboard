@@ -8,7 +8,7 @@
  *   PG수수료(pgFee)          = 결제매출(VAT 포함 실제 결제금액) × 요율(결제일별: ~6/18 3.52% 일괄 / 6/19~ 결제수단별)
  *                              (PG 는 결제금액 전체에 요율을 매김. 토스 정산: payOutAmount = amount − fee.
  *                               수수료 부가세는 매입세액공제 대상이라 원가에 넣지 않음 — 2026-09-08 수정)
- *   리포트 생성원가          = 결제완료 건수 × 건당원가(결제일별: ~2026-04 250 / 2026-05 266 / 2026-06 390 / 2026-07 870 / 2026-10~ 1610)
+ *   리포트 생성원가          = 결제완료 건수 × 건당원가(결제일별: ~2026-04 250 / 2026-05 266 / 2026-06 390 / 2026-07 870 / 2026-08 760 / 2026-09 1600 / 2026-10~ 1610)
  *   ROAS                     = 결제매출(VAT 포함) / 광고비 × 100
  *   손익분기 ROAS (BEP)      = 결제매출(VAT포함) / 손익분기광고비 × 100 (원가구조 기반 동적)
  *      손익분기광고비          = VAT제외매출 - PG - 리포트원가 (공헌이익 0 이 되는 광고비)
@@ -94,7 +94,12 @@ export const BREAK_EVEN_ROAS_FALLBACK = 118;  // 매출이 원가(PG+리포트)�
  *   ~2026-04  : base (기본 250)
  *   2026-05    : 266  (5월 실원가)
  *   2026-06    : 390  (Opus 전환 후 실원가)
- *   2026-07~09 : 870  (7월 실원가)
+ *   2026-07    : 870  (7월 실원가)
+ *   2026-08    : 760  (8월 실사용 원가, 2026-10-05 재산정 — 무료 크레딧으로 깎지 않고 사용량을 비용으로 봄.
+ *                      Claude $918.57(Console 월 합계) + OpenAI 이미지 2,409장×$0.165, VAT 10% 포함,
+ *                      8월 평균 ECB 환율 1,402.99원 ÷ 결제 2,663건 = 763원)
+ *   2026-09    : 1600 (9월 실사용 원가, 같은 기준. Claude $3,137.28 + 이미지 2,871장×$0.165,
+ *                      9월 평균 환율 1,358.41원 ÷ 결제 3,366건 = 1,603원)
  *   2026-10~   : 1610 (결제 1건당 AI 총원가. 10/4 21:56 유료충전 ~ 10/5 14:07 실측, 2026-10-05 확정.
  *                      결제 161건(질문권 포함)에 리포트 Claude $130.54 + AI 상담 Claude $20.03
  *                      + OpenAI 이미지 151장 $24.92(서버 기록 추정단가 $0.165/장), VAT 10% 포함·환율 1,344.6원
@@ -103,6 +108,8 @@ export const BREAK_EVEN_ROAS_FALLBACK = 118;  // 매출이 원가(PG+리포트)�
 export const REPORT_COST_PER_UNIT_2026_05 = 266;
 export const REPORT_COST_PER_UNIT_2026_06 = 390;
 export const REPORT_COST_PER_UNIT_2026_07 = 870;
+export const REPORT_COST_PER_UNIT_2026_08 = 760;
+export const REPORT_COST_PER_UNIT_2026_09 = 1600;
 export const REPORT_COST_PER_UNIT_2026_10 = 1610;
 
 export function reportCostPerUnitForDate(
@@ -110,6 +117,8 @@ export function reportCostPerUnitForDate(
   base: number = DEFAULT_REPORT_COST_PER_UNIT,
 ): number {
   if (date >= "2026-10-01") return REPORT_COST_PER_UNIT_2026_10;
+  if (date >= "2026-09-01") return REPORT_COST_PER_UNIT_2026_09;
+  if (date >= "2026-08-01") return REPORT_COST_PER_UNIT_2026_08;
   if (date >= "2026-07-01") return REPORT_COST_PER_UNIT_2026_07;
   if (date >= "2026-06-01") return REPORT_COST_PER_UNIT_2026_06;
   if (date >= "2026-05-01") return REPORT_COST_PER_UNIT_2026_05;
