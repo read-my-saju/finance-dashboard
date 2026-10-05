@@ -9,7 +9,7 @@
  *   945,000 × 3.2% = 30,240. (VAT 제외 859,091 × 3.2% = 27,491 은 틀린 값)
  */
 import assert from "node:assert/strict";
-import { calc, pgFeeRateForMethodOnDate } from "./calc";
+import { calc, pgFeeRateForMethodOnDate, reportCostPerUnitForDate } from "./calc";
 import { computeProfit } from "./profit";
 
 const r = calc({ netRevenue: 945_000, adSpend: 0, reportCount: 0, pgFeeRate: 0.032, reportCostPerUnit: 0 });
@@ -38,6 +38,10 @@ assert.equal(pgFeeRateForMethodOnDate("신용카드", "2026-06-18"), 0.0352);
 assert.equal(pgFeeRateForMethodOnDate("신용카드", "2026-08-13"), 0.032);
 assert.equal(pgFeeRateForMethodOnDate("간편결제", "2026-09-01"), 0.032);
 assert.equal(pgFeeRateForMethodOnDate("계좌이체", "2026-09-01"), 0.02);
+
+// 리포트 건당 원가: ~9/30 870원 / 10/1~ 1,260원 (2026-10-05 실측)
+assert.equal(reportCostPerUnitForDate("2026-09-30"), 870);
+assert.equal(reportCostPerUnitForDate("2026-10-01"), 1260);
 
 // 실제 정산 메일 재현: 매출일 2026-08-13 매출액 1,778,260 → PG이용료 56,978 (오차 1% 이내)
 const s = computeProfit({
