@@ -24,7 +24,8 @@ import {
   type PurchaseAttribution,
 } from "./channel";
 
-export const CHANNEL_ORDER: ChannelGroup[] = ["meta", "search", "owned", "influencer", "referral", "unattributed"];
+// meta 가 항상 0번 (groups[0] 을 메타로 씀). 순서는 화면 누적 막대 순서와 같다 (인접 색 대비 검증된 순서).
+export const CHANNEL_ORDER: ChannelGroup[] = ["meta", "search", "search_ad", "owned", "influencer", "referral", "unattributed"];
 
 export type ChannelRow = {
   key: string;
@@ -107,7 +108,7 @@ function ymdRange(from: string, until: string): string[] {
 }
 
 function emptyByGroup(): Record<ChannelGroup, number> {
-  return { meta: 0, search: 0, owned: 0, influencer: 0, referral: 0, unattributed: 0 };
+  return { meta: 0, search: 0, search_ad: 0, owned: 0, influencer: 0, referral: 0, unattributed: 0 };
 }
 
 export function buildChannelPeriod(args: {

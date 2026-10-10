@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const from = searchParams.get("from") || "2026-01-01";
-  const until = searchParams.get("until") || new Date().toISOString().slice(0, 10);
+  const until = searchParams.get("until") || new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); // KST 오늘
   const force = searchParams.get("force") === "1";
 
   try {

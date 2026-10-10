@@ -19,13 +19,17 @@
  * cache fallback 으로 동작.
  */
 
-import { isKvEnabled, kv } from "./kv";
+import { isKvEnabled as kvConfigured, kv } from "./kv";
 import {
   fetchDailyCampaignInsights,
   MetaApiError,
   MetaConfigError,
   type MetaInsightRow,
 } from "./meta";
+
+// 2026-10-10: KV 는 Mixpanel 귀속 저장(mixpanel-store)용으로 연결했다. 이 증분 동기화는 새로고침(force)을 눌러야만
+// 최근 7일을 다시 받으므로 켜면 오늘 광고비가 멈춘다 — META_KV_SYNC=1 일 때만 켜고, 그 전까지는 기존처럼 매번 전체 조회.
+const isKvEnabled = () => kvConfigured() && process.env.META_KV_SYNC === "1";
 
 const ROLLING_DAYS = 7;
 

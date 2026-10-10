@@ -229,11 +229,22 @@ export async function loadChannelRevenue(opts: LoadOptions): Promise<{
   ]);
 
   // 새로고침(force)은 토스·메타만 다시 받는다. Mixpanel 은 mixpanel-store 의 15분 규칙을 따른다.
+  // 날짜별 토스 결제 수 — Mixpanel 조회가 절반도 못 찾은 날은 확정하지 않는다 (mixpanel-store).
+  const expected = new Map<string, number>();
+  for (const p of [...(prevRaw?.payments ?? []), ...curRaw.payments]) {
+    if (p.orderId) expected.set(paymentDate(p), (expected.get(paymentDate(p)) ?? 0) + 1);
+  }
   let stored: Awaited<ReturnType<typeof loadStoredAttributions>>;
   try {
-    stored = await loadStoredAttributions(prevRange?.from ?? range.from, range.until);
+    stored = await loadStoredAttributions(prevRange?.from ?? range.from, range.until, expected);
   } catch (e: any) {
-    const error = e instanceof MixpanelConfigError ? e.message : `Mixpanel 조회 실패: ${String(e?.message || e).slice(0, 200)}`;
+    console.error("[channels] Mixpanel 조회 실패", e);
+    // 외부 응답 본문은 화면에 내보내지 않는다.
+    const error = e instanceof MixpanelConfigError
+      ? e.message
+      : / 429:/.test(String(e?.message))
+        ? "Mixpanel 조회 한도를 넘었어요. 15분쯤 뒤 다시 열어 주세요."
+        : "Mixpanel 조회에 실패했어요. 잠시 후 다시 시도해 주세요.";
     return { cur: null, prev: null, prevRange, clampedFrom: clamped ? range.from : null, error, attributionAsOf: null, attributionStale: false };
   }
   const byTx = new Map(stored.rows.map((a) => [a.tx, a]));

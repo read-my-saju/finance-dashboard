@@ -30,18 +30,18 @@ export type ChannelsData = {
 type Theme = "light" | "dark";
 type Mode = "all" | "new";
 
-const ORDER: ChannelGroup[] = ["meta", "search", "owned", "influencer", "referral", "unattributed"];
+const ORDER: ChannelGroup[] = ["meta", "search", "search_ad", "owned", "influencer", "referral", "unattributed"];
 const LABEL: Record<ChannelGroup, string> = {
-  meta: "메타 광고", search: "검색", owned: "자사 SNS", influencer: "인플루언서", referral: "레퍼럴", unattributed: "미귀속",
+  meta: "메타 광고", search: "검색", search_ad: "검색광고", owned: "자사 SNS", influencer: "인플루언서", referral: "레퍼럴", unattributed: "미귀속",
 };
 const COLORS: Record<Theme, Record<ChannelGroup, string>> = {
-  light: { meta: "#2a78d6", search: "#eb6834", owned: "#1baf7a", influencer: "#eda100", referral: "#e87ba4", unattributed: "#b9b7b1" },
-  dark: { meta: "#3987e5", search: "#d95926", owned: "#199e70", influencer: "#c98500", referral: "#d55181", unattributed: "#55554f" },
+  light: { meta: "#2a78d6", search: "#eb6834", search_ad: "#4a3aa7", owned: "#1baf7a", influencer: "#eda100", referral: "#e87ba4", unattributed: "#b9b7b1" },
+  dark: { meta: "#3987e5", search: "#d95926", search_ad: "#9085e9", owned: "#199e70", influencer: "#c98500", referral: "#d55181", unattributed: "#55554f" },
 };
 const TIPS = {
   roas: "메타 광고로 들어온 고객의 실제 결제액(토스) ÷ 메타 광고비. 결제 직전 마지막 유입 경로(UTM) 기준이에요.",
   aroas: "메타 광고로 들어와 처음 결제한 고객의 결제액 ÷ 메타 광고비. 광고가 새 고객을 데려오는 효율이에요(aMER). 7월 하순 이전 결제 기록은 Mixpanel에 없어서, 그때 산 고객의 재구매는 신규로 잡힐 수 있어요.",
-  mer: "전체 매출 ÷ 전체 광고비. 네이버·인스타 프로필 같은 광고 외 매출도 포함돼서 광고 성과보다 높게 나와요.",
+  mer: "전체 매출 ÷ 메타 광고비. 네이버 검색·인스타 프로필 같은 광고 외 매출도 포함돼서 광고 성과보다 높게 나와요. 네이버 검색광고비는 아직 연동되지 않아 광고비에 빠져 있어요.",
   ncac: "메타 광고비 ÷ 메타로 들어온 신규 구매자 수. 새 고객 1명을 데려오는 데 든 비용이에요.",
   pixel: "메타 광고관리자가 자체 집계한 구매액 ÷ 광고비. 7일 클릭·1일 조회 기준이라 실제보다 크게 잡혀요.",
   cov: "결제 중 유입 채널을 확인한 비율. 결제 이벤트에 UTM이 없으면 결제 전 7일 방문기록으로 복원해요.",
@@ -101,8 +101,9 @@ const TONE = {
 };
 const toneOf = (d: number) => (d >= 5 ? "good" : d >= 0 ? "warn" : "bad");
 
-function StatusChip({ roas, bep }: { roas: number | null; bep: number }) {
-  if (roas == null) return <span className="text-xs text-gray-400 dark:text-zinc-500">광고비 없음</span>;
+function StatusChip({ roas, bep, group }: { roas: number | null; bep: number; group?: ChannelGroup }) {
+  // 검색광고는 광고비가 있지만 아직 대시보드에 연동되지 않았다.
+  if (roas == null) return <span className="text-xs text-gray-400 dark:text-zinc-500">{group === "search_ad" ? "광고비 미연동" : "광고비 없음"}</span>;
   const d = roas - bep;
   const tone = toneOf(d);
   const text = tone === "good" ? `✔ +${d.toFixed(0)}%p` : tone === "warn" ? `▲ +${d.toFixed(0)}%p 근접` : `✖ ${d.toFixed(0)}%p 미달`;
@@ -226,7 +227,7 @@ function Mix({ cur, prev, mode, colors, focus, setFocus }: {
   const share = (g: ChannelGroupRow | undefined, t: number) => (g && t > 0 ? (revOf(g, mode) / t) * 100 : 0);
   const sumShare = (keys: ChannelGroup[]) => keys.reduce((s, k) => s + share(cur.groups.find((g) => g.group === k), total), 0);
   const toggle = (g: ChannelGroup) => setFocus(focus === g ? null : g);
-  const splits: Array<[string, ChannelGroup[]]> = [["광고", ["meta"]], ["광고 외", ["search", "owned", "influencer", "referral"]], ["미귀속", ["unattributed"]]];
+  const splits: Array<[string, ChannelGroup[]]> = [["광고", ["meta", "search_ad"]], ["광고 외", ["search", "owned", "influencer", "referral"]], ["미귀속", ["unattributed"]]];
 
   return (
     <div className={CARD} aria-labelledby="ch-q2">
@@ -432,7 +433,7 @@ function ChannelTable({ cur, mode, colors, focus }: { cur: ChannelPeriod; mode: 
         <td className={TD}>{newPct(o)}</td>
         <td className={TD}>{o.spend > 0 ? man(o.spend) : muted}</td>
         <td className={TD}>{r == null ? muted : pct(r)}</td>
-        <td className={TD}><StatusChip roas={r} bep={bep} /></td>
+        <td className={TD}><StatusChip roas={r} bep={bep} group={g} /></td>
         <td className={`${TD} pr-0`}>{cp(o)}</td>
       </tr>
     );
@@ -471,7 +472,7 @@ function ChannelTable({ cur, mode, colors, focus }: { cur: ChannelPeriod; mode: 
             <div key={k} className={`grid gap-2 rounded-xl border border-gray-200 px-3.5 py-3 dark:border-zinc-800 ${focus === k ? "bg-blue-50/60 dark:bg-blue-950/30" : ""}`}>
               <div className="flex items-center justify-between gap-2 font-bold text-gray-900 dark:text-zinc-100">
                 <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: colors[k] }} />{LABEL[k]}</span>
-                <StatusChip roas={r} bep={bep} />
+                <StatusChip roas={r} bep={bep} group={k} />
               </div>
               <div className="grid grid-cols-3 gap-1.5 text-xs text-gray-400 dark:text-zinc-500">
                 <div>매출<b className="block text-sm tabular-nums text-gray-900 dark:text-zinc-100">{man(revOf(g, mode))}</b></div>

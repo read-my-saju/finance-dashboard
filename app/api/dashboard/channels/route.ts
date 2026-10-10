@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const from = searchParams.get("from") || "2026-01-01";
-  const until = searchParams.get("until") || new Date().toISOString().slice(0, 10);
+  const until = searchParams.get("until") || new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); // KST 오늘
   const force = searchParams.get("force") === "1";
 
   try {
@@ -42,9 +42,8 @@ export async function GET(req: NextRequest) {
       error,
     });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: "fetch_failed", detail: String(e?.message || e).slice(0, 300) },
-      { status: 502 },
-    );
+    // 외부 API 오류 본문은 응답에 싣지 않고 서버 로그에만 남긴다.
+    console.error("[channels] 조회 실패", e);
+    return NextResponse.json({ error: "채널 성과를 불러오지 못했어요. 잠시 후 다시 시도해 주세요." }, { status: 502 });
   }
 }

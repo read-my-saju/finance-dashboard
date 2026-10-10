@@ -104,7 +104,7 @@ const BUYS_JQL = (users: string[], to: string) => `function main(){var S=${userS
 
 // 내부 도메인·결제창·로그인 리다이렉트는 유입 경로가 아님.
 const TOUCH_JQL = (users: string[], from: string, to: string) => String.raw`function main(){var S=${userSet(users)};
-  var INT=/(^|\.)pouri\.kr$|readmysaju\.com$|kauth\.kakao\.com|accounts\.google|toss|portone|iamport|kakaopay|naverpay|payco|inicis|nicepay|\$direct/;
+  var INT=/(^|\.)pouri\.kr$|readmysaju\.com$|kauth\.kakao\.com|accounts\.google|toss|portone|iamport|kakaopay|naverpay|payco|inicis|nicepay|nid\.naver\.com|pay\.naver\.com|\$direct/;
   function ua(s){if(!s)return null;if(s.indexOf('Instagram')>=0)return 'IG';if(s.indexOf('FBAN')>=0||s.indexOf('FB_IAB')>=0)return 'FB';
     if(s.indexOf('KAKAOTALK')>=0)return 'KAKAO';if(s.indexOf('NAVER')>=0)return 'NAVER';return null;}
   return Events({from_date:'${from}',to_date:'${to}'}).filter(function(e){return S[e.distinct_id];})

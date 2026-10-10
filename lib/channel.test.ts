@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { classifyChannel, type CampaignRef, type PurchaseAttribution } from "./channel";
 import { buildChannelPeriod } from "./channel-revenue";
 import { onePerTx } from "./mixpanel";
-import { daysBetween, isFinal, planFetch, splitByDay, type DayRecord } from "./mixpanel-store";
+import { buildRecords, daysBetween, isFinal, planFetch, splitByDay, type DayRecord } from "./mixpanel-store";
 
 const CAMPAIGNS: CampaignRef[] = [
   { id: "120252368489210722", name: "26_3Q_sales_rebranding_판매_성공운" },
@@ -123,23 +123,48 @@ for (const rows of [dup, [...dup].reverse()]) {
   assert.equal(picked.find((r) => r.tx === "y")!.t, 50);
 }
 
-// ── 귀속 저장 규칙: 확정된 날은 다시 조회하지 않고, 확정 전 날은 15분마다만 ─────────
+// ── 네이버: 파워링크는 검색광고, 로그인·결제 리다이렉트는 유입 경로가 아님 ─────────────
+assert.deepEqual(c({ src: "naver", med: "cpc", camp: "pu_powerlink_brand__text_260827" }),
+  { group: "search_ad", detail: "네이버 파워링크 · pu_powerlink_brand__text_260827" });
+assert.equal(c({ src: "ig", med: "cpc", camp: "x" }).group, "meta", "메타 게재 위치 source 면 cpc 여도 메타");
+assert.deepEqual(c({ how: "touch", ref: "nid.naver.com" }), { group: "unattributed", detail: "흔적 없음" });
+assert.deepEqual(c({ how: "touch", ref: "orders.pay.naver.com", app: "NAVER" }), { group: "search", detail: "네이버 앱" });
+assert.deepEqual(c({ how: "touch", ref: "m.naver.com" }), { group: "referral", detail: "m.naver.com" }, "m.naver.com 은 그대로 (검색 여부 판단 불가)");
+assert.deepEqual(c({ how: "touch", ref: "m.search.naver.com" }), { group: "search", detail: "네이버 검색" });
+// 검색광고 결제도 채널 합계에 들어간다 (그룹 누락 = 합계 불일치)
+const withAd = buildChannelPeriod({
+  payments: [pay("a", 29_900), pay("s", 19_900)],
+  metaRows: [metaRow(CAMPAIGNS[0].id, 40_000, 0)],
+  attributions: new Map([attr("a", { src: "ig", med: "paid", camp: CAMPAIGNS[0].id }), attr("s", { src: "naver", med: "cpc", camp: "pu_powerlink" })]),
+  campaigns: CAMPAIGNS,
+  range,
+});
+assert.equal(withAd.groups[0].group, "meta", "groups[0] 은 메타");
+assert.equal(withAd.groups.reduce((s, x) => s + x.rev, 0), withAd.revenue);
+assert.equal(withAd.groups.find((x) => x.group === "search_ad")!.rev, 19_900);
+assert.equal(withAd.daily[0].rev.search_ad, 19_900);
+
+// ── 귀속 저장 규칙 ─────────────────────────────────────────────────────────
 const at = (iso: string) => Date.parse(iso);
 assert.deepEqual(daysBetween("2026-09-30", "2026-10-02"), ["2026-09-30", "2026-10-01", "2026-10-02"]);
-assert.equal(isFinal("2026-10-08", at("2026-10-09T02:00:00+09:00")), true, "다음날 02시 이후 조회 = 확정");
-assert.equal(isFinal("2026-10-08", at("2026-10-09T01:59:00+09:00")), false);
+const rec = (iso: string, complete = true): DayRecord => ({ fetchedAt: at(iso), rows: [], complete });
+assert.equal(isFinal("2026-10-08", rec("2026-10-11T00:00:00+09:00")), true, "그날 끝 +48시간 이후 완전한 기록 = 확정");
+assert.equal(isFinal("2026-10-08", rec("2026-10-10T23:59:00+09:00")), false, "48시간 전에는 늦은 이벤트를 기다림");
+assert.equal(isFinal("2026-10-08", rec("2026-10-12T00:00:00+09:00", false)), false, "불완전한 기록은 확정 안 함");
+assert.equal(isFinal("2026-10-08", rec("2026-10-16T00:00:00+09:00", false)), true, "불완전해도 7일 지나면 확정");
+
 const now = at("2026-10-10T17:30:00+09:00");
-const rec = (iso: string): DayRecord => ({ fetchedAt: at(iso), rows: [] });
 const storedDays = new Map<string, DayRecord>([
-  ["2026-10-07", rec("2026-10-08T03:00:00+09:00")], // 확정 → 재조회 없음
-  ["2026-10-08", rec("2026-10-08T22:00:00+09:00")], // 그날 밤 조회 → 미확정, 15분 지남 → 재조회
+  ["2026-10-06", rec("2026-10-09T01:00:00+09:00")], // 확정 → 재조회 없음
+  ["2026-10-07", rec("2026-10-08T03:00:00+09:00")], // 48시간 전 조회 → 미확정, 15분 지남 → 재조회
   ["2026-10-10", rec("2026-10-10T17:20:00+09:00")], // 10분 전 조회 → 새로고침해도 재조회 안 함
 ]);
 assert.deepEqual(
-  planFetch(["2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10"], storedDays, now),
-  ["2026-10-08", "2026-10-09"],
+  planFetch(["2026-10-06", "2026-10-07", "2026-10-08", "2026-10-10"], storedDays, now),
+  ["2026-10-07", "2026-10-08"],
   "확정·15분 이내는 건너뛰고, 미확정·누락만 조회",
 );
+
 const split = splitByDay(
   [{ ...base, tx: "p", ts: at("2026-10-08T23:59:00+09:00") }, { ...base, tx: "q", ts: at("2026-10-09T00:01:00+09:00") }],
   ["2026-10-08", "2026-10-09", "2026-10-10"],
@@ -147,5 +172,16 @@ const split = splitByDay(
 assert.deepEqual(split.get("2026-10-08")!.map((r) => r.tx), ["p"], "KST 자정 기준으로 나눔");
 assert.deepEqual(split.get("2026-10-09")!.map((r) => r.tx), ["q"]);
 assert.deepEqual(split.get("2026-10-10"), [], "결제가 없는 날도 빈 기록으로 저장");
+
+// 띄엄띄엄 필요한 날짜: 한 범위로 받아도 저장은 필요한 날짜만 (확정된 중간 날짜를 덮어쓰지 않음)
+const fetchedRows = [
+  { ...base, tx: "d1", ts: at("2026-10-01T12:00:00+09:00") },
+  { ...base, tx: "d5", ts: at("2026-10-05T12:00:00+09:00") },
+  { ...base, tx: "d9", ts: at("2026-10-09T12:00:00+09:00") },
+];
+const built = buildRecords(fetchedRows, ["2026-10-01", "2026-10-09"], new Map([["2026-10-01", 1], ["2026-10-09", 4]]), now);
+assert.deepEqual([...built.keys()], ["2026-10-01", "2026-10-09"], "중간 날짜(10/5)는 기록하지 않음");
+assert.equal(built.get("2026-10-01")!.complete, true);
+assert.equal(built.get("2026-10-09")!.complete, false, "토스 4건 중 1건만 찾음 → 불완전");
 
 console.log("channel.test OK");
