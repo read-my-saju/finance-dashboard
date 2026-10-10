@@ -9,6 +9,7 @@
 import assert from "node:assert/strict";
 import { classifyChannel, type CampaignRef, type PurchaseAttribution } from "./channel";
 import { buildChannelPeriod } from "./channel-revenue";
+import { onePerTx } from "./mixpanel";
 
 const CAMPAIGNS: CampaignRef[] = [
   { id: "120252368489210722", name: "26_3Q_sales_rebranding_판매_성공운" },
@@ -104,5 +105,21 @@ assert.equal(job.rev, 0);
 assert.equal(job.spend, 10_000);
 assert.equal(period.daily.length, 1);
 assert.equal(period.daily[0].rev.meta, 59_800);
+
+// 같은 결제 이벤트 재전송: UTM 있는 것 → 가장 이른 것, 응답 순서와 무관
+const dup = [
+  { t: 300, d: "u1", tx: "x" },
+  { t: 200, d: "u1", tx: "x", src: "ig", camp: CAMPAIGNS[0].id },
+  { t: 250, d: "u1", tx: "x", src: "fb", camp: CAMPAIGNS[1].id },
+  { t: 100, d: "u2", tx: "y" },
+  { t: 50, d: "u2", tx: "y" },
+  { t: 10, d: "u3" },
+];
+for (const rows of [dup, [...dup].reverse()]) {
+  const picked = onePerTx(rows);
+  assert.equal(picked.length, 2, "tx 당 1건, tx 없는 이벤트는 버림");
+  assert.equal(picked.find((r) => r.tx === "x")!.t, 200);
+  assert.equal(picked.find((r) => r.tx === "y")!.t, 50);
+}
 
 console.log("channel.test OK");

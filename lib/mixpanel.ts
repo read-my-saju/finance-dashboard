@@ -77,6 +77,23 @@ const PURCHASES_JQL = (from: string, to: string) => `function main(){
     src:p.utm_source,med:p.utm_medium,camp:p.utm_campaign,cont:p.utm_content,inf:p.influencer_code};});
 }`;
 
+const hasUtm = (r: RawPurchase) => Boolean(r.src || r.camp || r.inf || r.med);
+
+/**
+ * 같은 transaction_id 이벤트가 재전송돼 여럿이면 하나만 남긴다: UTM 있는 것 → 가장 이른 것.
+ * 응답 순서와 무관하게 같은 결과가 나와야 채널 분류가 흔들리지 않는다.
+ */
+export function onePerTx<T extends RawPurchase>(rows: T[]): T[] {
+  const better = (a: T, b: T) => (hasUtm(a) !== hasUtm(b) ? hasUtm(a) : a.t < b.t);
+  const byTx = new Map<string, T>();
+  for (const r of rows) {
+    if (!r.tx) continue;
+    const cur = byTx.get(r.tx);
+    if (!cur || better(r, cur)) byTx.set(r.tx, r);
+  }
+  return Array.from(byTx.values());
+}
+
 const userSet = (users: string[]) => JSON.stringify(Object.fromEntries(users.map((u) => [u, 1])));
 
 const BUYS_JQL = (users: string[], to: string) => `function main(){var S=${userSet(users)};
@@ -108,12 +125,11 @@ export async function fetchPurchaseAttributions(from: string, until: string): Pr
   const hi = kstStartMs(shiftYmd(until, 1));
   const utcTo = shiftYmd(until, 1);
 
-  const raw = (await jql<RawPurchase[]>(PURCHASES_JQL(shiftYmd(from, -1), utcTo)))
-    .filter((r) => r.tx && r.t >= lo && r.t < hi);
+  const raw = onePerTx((await jql<RawPurchase[]>(PURCHASES_JQL(shiftYmd(from, -1), utcTo)))
+    .filter((r) => r.t >= lo && r.t < hi));
   if (raw.length === 0) return [];
 
   const users = Array.from(new Set(raw.map((r) => r.d)));
-  const hasUtm = (r: RawPurchase) => Boolean(r.src || r.camp || r.inf || r.med);
   const untagged = Array.from(new Set(raw.filter((r) => !hasUtm(r)).map((r) => r.d)));
 
   const [buysRows, touchRows] = await Promise.all([
