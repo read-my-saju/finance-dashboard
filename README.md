@@ -66,6 +66,22 @@ KPI 카드에 표시됩니다.
 | `DEFAULT_REPORT_COST_PER_UNIT` | `250` | 보고서 1건당 LLM 비용 (원) |
 | `DASHBOARD_TIMEZONE` | `Asia/Seoul` | 일별 집계 타임존 |
 
+#### 채널 성과 (Mixpanel — 매출 유입 경로·메타 귀속 ROAS)
+
+KPI 줄 아래 "채널 성과" 섹션은 토스 결제를 Mixpanel 결제 이벤트(`s2s_purchase_verified`,
+`transaction_id` = 토스 `orderId`)의 유입 경로로 나눠 보여줍니다. 아래 3개가 없으면 섹션에 안내 문구만 나옵니다.
+
+| Name | 의미 |
+|---|---|
+| `MIXPANEL_SA_USERNAME` | Mixpanel 서비스 계정 username (Consumer 권한이면 충분 — JQL 만 사용) |
+| `MIXPANEL_SA_SECRET` | 서비스 계정 secret |
+| `MIXPANEL_PROJECT_ID` | 프로젝트 ID |
+
+- 분류 규칙: `lib/channel.ts` (결제 UTM → 결제 전 7일 방문기록 → 인앱 흔적 → 미귀속, 마지막 유입 기준)
+- 집계: `lib/channel-revenue.ts` (채널별로 `computeProfit` 재사용 — 계산식은 `lib/calc.ts` 단독)
+- 결제 이벤트에 UTM 이 실린 2026-09-03 이후 기간만 집계합니다. 그 이전을 포함한 기간을 고르면 9/3부터 보여주고 비교 기간은 생략합니다.
+- 테스트: `npx tsc lib/channel.test.ts --outDir .test-out --module commonjs --target es2020 --esModuleInterop --skipLibCheck --moduleResolution node && node .test-out/channel.test.js`
+
 #### Meta 광고 incremental sync (권장 — 새로고침 비용 절감)
 
 Vercel 프로젝트 → **Storage → Marketplace → Upstash Redis** integration 을

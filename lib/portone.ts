@@ -31,6 +31,8 @@ export type PortonePayment = {
   // 결제 통화 (KRW/USD ...). 토스 해외결제·국내결제 구분 및 KRW 필터에 사용.
   currency?: string;
   cancellations?: Array<{ amount?: number; cancelledAt?: string; reason?: string }>;
+  // 토스 결제만: 주문번호 = 백엔드 transaction_id. 채널 귀속(lib/channel-revenue.ts) 조인 키.
+  orderId?: string;
 };
 
 export type FetchDebug = {
