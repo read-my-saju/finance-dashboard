@@ -4,7 +4,9 @@
  * 채널 성과: 토스 결제를 Mixpanel 유입 경로로 나눈 매출·메타 귀속 ROAS (lib/channel-revenue.ts).
  * 같은 길이의 바로 앞 기간(prev)도 함께 돌려줘 화면이 증감을 표시한다.
  *
- * 응답: range, prevRange, clampedFrom, fetchedAt, cur, prev, error
+ * 응답: range, prevRange, clampedFrom, fetchedAt, attributionAsOf, attributionStale, cur, prev, error
+ *   attributionAsOf: 유입 귀속(Mixpanel) 중 아직 확정 전인 날짜의 조회 시각 (모두 확정이면 null). 15분마다 갱신.
+ *   attributionStale: Mixpanel 조회가 실패해(한도 초과 등) 저장해 둔 귀속으로 계산했으면 true.
  *   clampedFrom: 요청 기간이 데이터 시작일(2026-09-03) 이전을 포함해 그날부터만 집계했으면 그 날짜 (비교 기간 없음).
  *   cur/prev 가 null 이면 error 에 사유 (Mixpanel 환경변수 없음 등).
  */
@@ -27,12 +29,14 @@ export async function GET(req: NextRequest) {
   const force = searchParams.get("force") === "1";
 
   try {
-    const { cur, prev, prevRange, clampedFrom, error } = await loadChannelRevenue({ from, until, force });
+    const { cur, prev, prevRange, clampedFrom, error, attributionAsOf, attributionStale } = await loadChannelRevenue({ from, until, force });
     return NextResponse.json({
       range: { from, until },
       prevRange,
       clampedFrom,
       fetchedAt: new Date().toISOString(),
+      attributionAsOf: attributionAsOf ? new Date(attributionAsOf).toISOString() : null,
+      attributionStale,
       cur,
       prev,
       error,

@@ -17,9 +17,10 @@ import {
 } from "./meta";
 import { loadIncrementalRows } from "./meta-store";
 import { computeProfit, type ProfitSummary } from "./profit";
-import { fetchPurchaseAttributions, MixpanelConfigError } from "./mixpanel";
+import { MixpanelConfigError } from "./mixpanel";
+import { loadStoredAttributions } from "./mixpanel-store";
 import { buildChannelPeriod, type ChannelPeriod } from "./channel-revenue";
-import type { CampaignRef, PurchaseAttribution } from "./channel";
+import type { CampaignRef } from "./channel";
 
 const TTL_MS = 5 * 60 * 1000;
 
@@ -174,24 +175,10 @@ export async function loadMetaCampaigns(opts: LoadOptions): Promise<{
 
 export function invalidateCache(): void {
   cache.clear();
-  attributionCache.clear();
 }
 
 // ── 채널 성과 ─────────────────────────────────────────────────────────────
-// Mixpanel JQL 은 30일치도 3초 안팎이라 KV 영속 저장 없이 5분 메모리 캐시만 쓴다 (2026-10-10 측정).
-// 한 번 조회에 JQL 최대 3회 — Mixpanel 쿼리 한도(시간당 호출 수)를 아끼려고 기간 몇 개를 같이 들고 있는다.
-const attributionCache = new Map<string, { expiresAt: number; rows: PurchaseAttribution[] }>();
-
-async function loadAttributions(from: string, until: string, force: boolean): Promise<PurchaseAttribution[]> {
-  const key = `${from}|${until}`;
-  const hit = attributionCache.get(key);
-  if (!force && hit && hit.expiresAt > Date.now()) return hit.rows;
-  const rows = await fetchPurchaseAttributions(from, until);
-  attributionCache.delete(key);
-  attributionCache.set(key, { expiresAt: Date.now() + TTL_MS, rows });
-  if (attributionCache.size > MAX_ENTRIES) attributionCache.delete(attributionCache.keys().next().value as string);
-  return rows;
-}
+// 결제별 유입 귀속은 lib/mixpanel-store.ts 가 날짜별로 KV 에 저장해 재사용한다 (Mixpanel 쿼리 한도 보호).
 
 function shiftYmd(ymd: string, days: number): string {
   const d = new Date(`${ymd}T00:00:00Z`);
@@ -222,13 +209,15 @@ export async function loadChannelRevenue(opts: LoadOptions): Promise<{
   prevRange: { from: string; until: string } | null;
   clampedFrom: string | null;
   error: string | null;
+  attributionAsOf: number | null;
+  attributionStale: boolean;
 }> {
   // 요청 기간이 데이터 시작일 이전을 포함하면 시작일부터만 본다.
   // 비교 기간이 시작일 앞을 걸치면 대부분 미귀속이 돼 증감이 거짓이 되므로 비교 기간도 생략.
   const clamped = opts.from < CHANNEL_DATA_FROM;
   const range = { from: clamped ? CHANNEL_DATA_FROM : opts.from, until: opts.until };
   if (range.from > range.until) {
-    return { cur: null, prev: null, prevRange: null, clampedFrom: null, error: `채널 성과는 ${CHANNEL_DATA_FROM} 이후 기간만 볼 수 있습니다.` };
+    return { cur: null, prev: null, prevRange: null, clampedFrom: null, error: `채널 성과는 ${CHANNEL_DATA_FROM} 이후 기간만 볼 수 있습니다.`, attributionAsOf: null, attributionStale: false };
   }
   const prevCandidate = previousRange(opts.from, opts.until);
   const prevRange = clamped || prevCandidate.from < CHANNEL_DATA_FROM ? null : prevCandidate;
@@ -239,14 +228,15 @@ export async function loadChannelRevenue(opts: LoadOptions): Promise<{
     prevRange ? loadRawData({ ...prevRange, force: opts.force }) : Promise.resolve(null),
   ]);
 
-  let attributions: PurchaseAttribution[];
+  // 새로고침(force)은 토스·메타만 다시 받는다. Mixpanel 은 mixpanel-store 의 15분 규칙을 따른다.
+  let stored: Awaited<ReturnType<typeof loadStoredAttributions>>;
   try {
-    attributions = await loadAttributions(prevRange?.from ?? range.from, range.until, Boolean(opts.force));
+    stored = await loadStoredAttributions(prevRange?.from ?? range.from, range.until);
   } catch (e: any) {
     const error = e instanceof MixpanelConfigError ? e.message : `Mixpanel 조회 실패: ${String(e?.message || e).slice(0, 200)}`;
-    return { cur: null, prev: null, prevRange, clampedFrom: clamped ? range.from : null, error };
+    return { cur: null, prev: null, prevRange, clampedFrom: clamped ? range.from : null, error, attributionAsOf: null, attributionStale: false };
   }
-  const byTx = new Map(attributions.map((a) => [a.tx, a]));
+  const byTx = new Map(stored.rows.map((a) => [a.tx, a]));
   const metaRowsAll = [...(prevRaw?.metaRows ?? []), ...curRaw.metaRows];
   const campaigns: CampaignRef[] = Array.from(
     new Map(metaRowsAll.map((r) => [r.campaignId, { id: r.campaignId, name: r.campaignName }])).values(),
@@ -265,5 +255,7 @@ export async function loadChannelRevenue(opts: LoadOptions): Promise<{
     prevRange,
     clampedFrom: clamped ? range.from : null,
     error: curRaw.metaError,
+    attributionAsOf: stored.asOf,
+    attributionStale: stored.stale,
   };
 }
