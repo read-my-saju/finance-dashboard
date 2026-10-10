@@ -139,6 +139,7 @@ type TossGroup = {
   currency: string;
   method?: string;
   at?: string;        // 승인 시각 (가장 이른 DONE 거래 기준 = 결제일)
+  orderId?: string;   // 백엔드 transaction_id 와 같은 값 (Mixpanel 채널 귀속 조인 키)
 };
 
 /**
@@ -173,6 +174,7 @@ export function tossToPortonePayments(txns: TossTransaction[]): PortonePayment[]
         currency: (t.currency || "").toUpperCase(),
         method: t.method,
         at: undefined,
+        orderId: t.orderId,
       } as TossGroup);
 
     if (status === "DONE") {
@@ -185,6 +187,7 @@ export function tossToPortonePayments(txns: TossTransaction[]): PortonePayment[]
     }
     if (!g.currency && t.currency) g.currency = t.currency.toUpperCase();
     if (!g.method && t.method) g.method = t.method;
+    if (!g.orderId && t.orderId) g.orderId = t.orderId;
     groups.set(key, g);
   }
 
@@ -210,6 +213,7 @@ export function tossToPortonePayments(txns: TossTransaction[]): PortonePayment[]
       channel: { pgProvider: "TOSS", type: "" },
       method: tossMethodToPortone(g.method),
       currency: g.currency || "KRW",
+      orderId: g.orderId,
     } as PortonePayment);
   }
   return out;

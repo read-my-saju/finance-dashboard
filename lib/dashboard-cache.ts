@@ -1,5 +1,5 @@
 /**
- * 3 개 dashboard route (summary/daily/meta-campaigns) 가 공유하는
+ * dashboard route (summary/daily/meta-campaigns/channels) 가 공유하는
  * in-memory cache. 같은 기간 요청을 dashboard 한 화면에서 동시에 3번 부르므로
  * PortOne + Meta API 를 매번 새로 치지 않도록 묶어준다.
  *
@@ -17,6 +17,9 @@ import {
 } from "./meta";
 import { loadIncrementalRows } from "./meta-store";
 import { computeProfit, type ProfitSummary } from "./profit";
+import { fetchPurchaseAttributions, MixpanelConfigError } from "./mixpanel";
+import { buildChannelPeriod, type ChannelPeriod } from "./channel-revenue";
+import type { CampaignRef, PurchaseAttribution } from "./channel";
 
 const TTL_MS = 5 * 60 * 1000;
 
@@ -30,7 +33,14 @@ type CacheEntry = {
   metaError: string | null;
 };
 
-let cache: CacheEntry | null = null;
+// 기간별 entry. 채널 성과가 이전 기간도 함께 읽으므로 몇 개를 같이 들고 있는다.
+const MAX_ENTRIES = 4;
+const cache = new Map<string, CacheEntry>();
+
+function freshEntry(key: string): CacheEntry | null {
+  const e = cache.get(key);
+  return e && e.expiresAt > Date.now() ? e : null;
+}
 
 export type LoadOptions = {
   from: string;
@@ -41,8 +51,9 @@ export type LoadOptions = {
 async function loadRawData(opts: LoadOptions): Promise<CacheEntry> {
   const key = `${opts.from}|${opts.until}`;
   const now = Date.now();
-  if (!opts.force && cache && cache.key === key && cache.expiresAt > now) {
-    return cache;
+  const hit = freshEntry(key);
+  if (!opts.force && hit) {
+    return hit;
   }
 
   // PortOne(과거) + Toss(2026-06-19~) 합산. 양쪽 모두 실패할 때만 throw.
@@ -80,7 +91,9 @@ async function loadRawData(opts: LoadOptions): Promise<CacheEntry> {
     metaBudgets,
     metaError,
   };
-  cache = entry;
+  cache.delete(key);
+  cache.set(key, entry);
+  if (cache.size > MAX_ENTRIES) cache.delete(cache.keys().next().value as string);
   return entry;
 }
 
@@ -88,8 +101,7 @@ export async function loadProfitSummary(opts: LoadOptions & {
   pgFeeRate?: number;
   reportCostPerUnit?: number;
 }): Promise<{ summary: ProfitSummary; metaError: string | null; cached: boolean }> {
-  const now = Date.now();
-  const wasCached = !opts.force && cache && cache.key === `${opts.from}|${opts.until}` && cache.expiresAt > now;
+  const wasCached = !opts.force && freshEntry(`${opts.from}|${opts.until}`) !== null;
   const entry = await loadRawData(opts);
   const metaByDay = aggregateMetaByDay(entry.metaRows);
   const summary = computeProfit({
@@ -131,8 +143,7 @@ export async function loadMetaCampaigns(opts: LoadOptions): Promise<{
   metaError: string | null;
   cached: boolean;
 }> {
-  const now = Date.now();
-  const wasCached = !opts.force && cache && cache.key === `${opts.from}|${opts.until}` && cache.expiresAt > now;
+  const wasCached = !opts.force && freshEntry(`${opts.from}|${opts.until}`) !== null;
   const entry = await loadRawData(opts);
   const agg = aggregateMetaByCampaign(entry.metaRows);
   const campaigns: MetaCampaignRow[] = agg.map((r) => {
@@ -162,5 +173,97 @@ export async function loadMetaCampaigns(opts: LoadOptions): Promise<{
 }
 
 export function invalidateCache(): void {
-  cache = null;
+  cache.clear();
+  attributionCache.clear();
+}
+
+// ── 채널 성과 ─────────────────────────────────────────────────────────────
+// Mixpanel JQL 은 30일치도 3초 안팎이라 KV 영속 저장 없이 5분 메모리 캐시만 쓴다 (2026-10-10 측정).
+// 한 번 조회에 JQL 최대 3회 — Mixpanel 쿼리 한도(시간당 호출 수)를 아끼려고 기간 몇 개를 같이 들고 있는다.
+const attributionCache = new Map<string, { expiresAt: number; rows: PurchaseAttribution[] }>();
+
+async function loadAttributions(from: string, until: string, force: boolean): Promise<PurchaseAttribution[]> {
+  const key = `${from}|${until}`;
+  const hit = attributionCache.get(key);
+  if (!force && hit && hit.expiresAt > Date.now()) return hit.rows;
+  const rows = await fetchPurchaseAttributions(from, until);
+  attributionCache.delete(key);
+  attributionCache.set(key, { expiresAt: Date.now() + TTL_MS, rows });
+  if (attributionCache.size > MAX_ENTRIES) attributionCache.delete(attributionCache.keys().next().value as string);
+  return rows;
+}
+
+function shiftYmd(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** 같은 길이의 바로 앞 기간. */
+export function previousRange(from: string, until: string): { from: string; until: string } {
+  const days = Math.round((Date.parse(`${until}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
+  return { from: shiftYmd(from, -days), until: shiftYmd(from, -1) };
+}
+
+// 결제 이벤트에 utm 이 실리기 시작한 날 (백엔드 purchase.utm_* 컬럼 추가일). 이전 기간은 집계하지 않는다.
+export const CHANNEL_DATA_FROM = "2026-09-03";
+
+function kstDate(iso?: string): string {
+  const t = iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(t) ? new Date(t + 9 * 3600 * 1000).toISOString().slice(0, 10) : "";
+}
+
+// profit.ts 와 같은 규칙: paidAt 이 파싱 안 되면 requestedAt.
+const paymentDate = (p: PortonePayment) => kstDate(p.paidAt) || kstDate(p.requestedAt);
+
+export async function loadChannelRevenue(opts: LoadOptions): Promise<{
+  cur: ChannelPeriod | null;
+  prev: ChannelPeriod | null;
+  prevRange: { from: string; until: string } | null;
+  clampedFrom: string | null;
+  error: string | null;
+}> {
+  // 요청 기간이 데이터 시작일 이전을 포함하면 시작일부터만 본다.
+  // 비교 기간이 시작일 앞을 걸치면 대부분 미귀속이 돼 증감이 거짓이 되므로 비교 기간도 생략.
+  const clamped = opts.from < CHANNEL_DATA_FROM;
+  const range = { from: clamped ? CHANNEL_DATA_FROM : opts.from, until: opts.until };
+  if (range.from > range.until) {
+    return { cur: null, prev: null, prevRange: null, clampedFrom: null, error: `채널 성과는 ${CHANNEL_DATA_FROM} 이후 기간만 볼 수 있습니다.` };
+  }
+  const prevCandidate = previousRange(opts.from, opts.until);
+  const prevRange = clamped || prevCandidate.from < CHANNEL_DATA_FROM ? null : prevCandidate;
+
+  // 대시보드와 같은 기간 키로 읽어 캐시를 공유하고, 잘린 경우만 날짜로 거른다.
+  const [curRaw, prevRaw] = await Promise.all([
+    loadRawData(opts),
+    prevRange ? loadRawData({ ...prevRange, force: opts.force }) : Promise.resolve(null),
+  ]);
+
+  let attributions: PurchaseAttribution[];
+  try {
+    attributions = await loadAttributions(prevRange?.from ?? range.from, range.until, Boolean(opts.force));
+  } catch (e: any) {
+    const error = e instanceof MixpanelConfigError ? e.message : `Mixpanel 조회 실패: ${String(e?.message || e).slice(0, 200)}`;
+    return { cur: null, prev: null, prevRange, clampedFrom: clamped ? range.from : null, error };
+  }
+  const byTx = new Map(attributions.map((a) => [a.tx, a]));
+  const metaRowsAll = [...(prevRaw?.metaRows ?? []), ...curRaw.metaRows];
+  const campaigns: CampaignRef[] = Array.from(
+    new Map(metaRowsAll.map((r) => [r.campaignId, { id: r.campaignId, name: r.campaignName }])).values(),
+  );
+  const build = (raw: CacheEntry, r: { from: string; until: string }) =>
+    buildChannelPeriod({
+      payments: raw.payments.filter((p) => paymentDate(p) >= r.from),
+      metaRows: raw.metaRows.filter((m) => m.date >= r.from),
+      attributions: byTx,
+      campaigns,
+      range: r,
+    });
+  return {
+    cur: build(curRaw, range),
+    prev: prevRaw && prevRange ? build(prevRaw, prevRange) : null,
+    prevRange,
+    clampedFrom: clamped ? range.from : null,
+    error: curRaw.metaError,
+  };
 }

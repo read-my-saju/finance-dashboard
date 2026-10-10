@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BREAK_EVEN_ROAS_FALLBACK, calculateBreakEvenRoas, calculateRoas } from "@/lib/calc";
+import { commonCampaignPrefix } from "@/lib/campaign-name";
+import ChannelSection, { type ChannelsData } from "./ChannelSection";
 import {
   Bar,
   BarChart,
@@ -311,6 +313,8 @@ export default function Dashboard() {
   const [daily, setDaily] = useState<DailyData | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignsData | null>(null);
   const [prevTotals, setPrevTotals] = useState<PrevTotals | null>(null);
+  const [channels, setChannels] = useState<ChannelsData | null>(null);
+  const [channelsLoading, setChannelsLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [theme, toggleTheme] = useTheme();
@@ -338,6 +342,21 @@ export default function Dashboard() {
     const prevFrom = addDays(prevUntil, -(len - 1));
     const prevQs = new URLSearchParams({ from: prevFrom, until: prevUntil });
     if (force) prevQs.set("force", "1");
+
+    // 채널 성과는 Mixpanel 조회가 붙어 다른 카드보다 늦을 수 있어 따로 기다린다.
+    setChannelsLoading(true);
+    fetch(`/api/dashboard/channels?${q}`, { cache: "no-store" })
+      .then(async (res) => {
+        const json = await res.json();
+        if (reqIdRef.current !== myId) return;
+        setChannels(res.ok ? json : { range: { from, until }, prevRange: null, clampedFrom: null, cur: null, prev: null, error: json?.detail || json?.error || `channels HTTP ${res.status}` });
+      })
+      .catch((e) => {
+        if (reqIdRef.current === myId) setChannels({ range: { from, until }, prevRange: null, clampedFrom: null, cur: null, prev: null, error: String(e?.message || e) });
+      })
+      .finally(() => {
+        if (reqIdRef.current === myId) setChannelsLoading(false);
+      });
 
     try {
       const [pRes, sRes, dRes, cRes, prevRes] = await Promise.all([
@@ -428,6 +447,9 @@ export default function Dashboard() {
         prev={prevTotals}
         pal={pal}
       />
+
+      {/* ── 1-1. 채널 성과 (매출 유입 경로 · 메타 귀속 ROAS) ─────────────── */}
+      <ChannelSection data={channels} loading={channelsLoading} theme={theme} />
 
       {/* ── 2. 순매출 vs 광고비 + 기간 요약 ─────────────────────────────── */}
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -790,12 +812,12 @@ function RoasKpiCard({ totals }: { totals?: ProfitTotals }) {
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700">
-      <div className="text-xs font-medium text-gray-500 dark:text-zinc-400">ROAS</div>
+      <div className="text-xs font-medium text-gray-500 dark:text-zinc-400">MER (전체 매출 ÷ 광고비)</div>
       <div className="mt-1.5 text-2xl font-bold tabular-nums tracking-tight text-gray-900 dark:text-zinc-100">
         {fmtPct(roas, 1)}
       </div>
       <div className="mt-0.5 text-[11px] text-gray-400 dark:text-zinc-500">
-        포트원 결제매출(VAT 포함) ÷ 광고비 · 손익분기 {fmtPct(bep, 1)}
+        전체 결제매출(VAT 포함) ÷ 광고비 · 손익분기 {fmtPct(bep, 1)} · 메타만 보려면 아래 채널 성과
       </div>
       <div className="mt-2 flex items-center justify-between gap-2">
         <span className={`min-w-0 flex-1 text-xs font-medium ${
@@ -1431,31 +1453,6 @@ function CampaignTop10({ campaigns, bep }: { campaigns: CampaignRow[]; bep: numb
       })}
     </div>
   );
-}
-
-// top10 캠페인 이름들의 최장 공통 접두어를 단어 경계(_ - 공백)에서 끊어 반환.
-// 캠페인 1개거나 구분자를 포함한 공통 접두어가 없으면 "" (축약 안 함).
-function commonCampaignPrefix(names: string[]): string {
-  if (names.length < 2) return "";
-  const isSep = (ch: string) => ch === "_" || ch === "-" || ch === " ";
-  let lcp = names[0];
-  for (let i = 1; i < names.length; i++) {
-    const n = names[i];
-    let k = 0;
-    while (k < lcp.length && k < n.length && lcp[k] === n[k]) k++;
-    lcp = lcp.slice(0, k);
-    if (!lcp) break;
-  }
-  // LCP가 어떤 이름에서 단어 중간(다음 문자가 구분자도 문자열 끝도 아님)에서 끊겼으면,
-  // 마지막 구분자 앞까지 줄여 단어 경계를 맞춘다.
-  const cleanBoundary = names.every((n) => n.length === lcp.length || isSep(n[lcp.length]));
-  if (!cleanBoundary) {
-    let end = lcp.length;
-    while (end > 0 && !isSep(lcp[end - 1])) end--; // 마지막 구분자 다음 위치
-    lcp = lcp.slice(0, Math.max(end - 1, 0)); // 구분자 자체 제외
-  }
-  while (lcp.length && isSep(lcp[lcp.length - 1])) lcp = lcp.slice(0, -1); // 끝 구분자 정리
-  return /[_\-\s]/.test(lcp) ? lcp : ""; // 구분자 없는 짧은 접두어는 축약 이득 없음
 }
 
 function formatBudget(c: CampaignRow): string {
