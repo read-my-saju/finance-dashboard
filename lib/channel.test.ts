@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { classifyChannel, type CampaignRef, type PurchaseAttribution } from "./channel";
 import { buildChannelPeriod } from "./channel-revenue";
 import { onePerTx } from "./mixpanel";
+import { daysBetween, isFinal, planFetch, splitByDay, type DayRecord } from "./mixpanel-store";
 
 const CAMPAIGNS: CampaignRef[] = [
   { id: "120252368489210722", name: "26_3Q_sales_rebranding_판매_성공운" },
@@ -121,5 +122,30 @@ for (const rows of [dup, [...dup].reverse()]) {
   assert.equal(picked.find((r) => r.tx === "x")!.t, 200);
   assert.equal(picked.find((r) => r.tx === "y")!.t, 50);
 }
+
+// ── 귀속 저장 규칙: 확정된 날은 다시 조회하지 않고, 확정 전 날은 15분마다만 ─────────
+const at = (iso: string) => Date.parse(iso);
+assert.deepEqual(daysBetween("2026-09-30", "2026-10-02"), ["2026-09-30", "2026-10-01", "2026-10-02"]);
+assert.equal(isFinal("2026-10-08", at("2026-10-09T02:00:00+09:00")), true, "다음날 02시 이후 조회 = 확정");
+assert.equal(isFinal("2026-10-08", at("2026-10-09T01:59:00+09:00")), false);
+const now = at("2026-10-10T17:30:00+09:00");
+const rec = (iso: string): DayRecord => ({ fetchedAt: at(iso), rows: [] });
+const storedDays = new Map<string, DayRecord>([
+  ["2026-10-07", rec("2026-10-08T03:00:00+09:00")], // 확정 → 재조회 없음
+  ["2026-10-08", rec("2026-10-08T22:00:00+09:00")], // 그날 밤 조회 → 미확정, 15분 지남 → 재조회
+  ["2026-10-10", rec("2026-10-10T17:20:00+09:00")], // 10분 전 조회 → 새로고침해도 재조회 안 함
+]);
+assert.deepEqual(
+  planFetch(["2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10"], storedDays, now),
+  ["2026-10-08", "2026-10-09"],
+  "확정·15분 이내는 건너뛰고, 미확정·누락만 조회",
+);
+const split = splitByDay(
+  [{ ...base, tx: "p", ts: at("2026-10-08T23:59:00+09:00") }, { ...base, tx: "q", ts: at("2026-10-09T00:01:00+09:00") }],
+  ["2026-10-08", "2026-10-09", "2026-10-10"],
+);
+assert.deepEqual(split.get("2026-10-08")!.map((r) => r.tx), ["p"], "KST 자정 기준으로 나눔");
+assert.deepEqual(split.get("2026-10-09")!.map((r) => r.tx), ["q"]);
+assert.deepEqual(split.get("2026-10-10"), [], "결제가 없는 날도 빈 기록으로 저장");
 
 console.log("channel.test OK");

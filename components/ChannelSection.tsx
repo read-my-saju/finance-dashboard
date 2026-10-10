@@ -20,6 +20,8 @@ export type ChannelsData = {
   range: { from: string; until: string };
   prevRange: { from: string; until: string } | null;
   clampedFrom: string | null;
+  attributionAsOf?: string | null;
+  attributionStale?: boolean;
   cur: ChannelPeriod | null;
   prev: ChannelPeriod | null;
   error: string | null;
@@ -50,6 +52,12 @@ const won = (n: number) => `₩${NUM.format(Math.round(n))}`;
 const man = (n: number) => (Math.abs(n) >= 1e8 ? `${(n / 1e8).toFixed(2)}억` : `${NUM.format(Math.round(n / 1e4))}만`);
 const pct = (n: number | null | undefined, d = 1) => (n == null || !Number.isFinite(n) ? "—" : `${n.toFixed(d)}%`);
 const fmtDay = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+// KST 시각. 오늘이 아니면 날짜도 붙인다.
+const fmtClock = (iso: string) => {
+  const k = new Date(Date.parse(iso) + 9 * 3600 * 1000).toISOString();
+  const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  return `${k.slice(0, 10) === today ? "" : fmtDay(k.slice(0, 10)) + " "}${k.slice(11, 16)}`;
+};
 const revOf = (o: ChannelRow, mode: Mode) => (mode === "new" ? o.newRev : o.rev);
 const cntOf = (o: ChannelRow, mode: Mode) => (mode === "new" ? o.newN : o.n);
 const roasOf = (o: ChannelRow, mode: Mode) => (o.spend > 0 ? (revOf(o, mode) / o.spend) * 100 : null);
@@ -516,6 +524,14 @@ export default function ChannelSection({ data, loading, theme }: { data: Channel
           {rangeText && <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs tabular-nums text-gray-500 dark:bg-zinc-800 dark:text-zinc-400">{rangeText}</span>}
           {data?.clampedFrom && (
             <span className="text-xs text-gray-400 dark:text-zinc-500">결제 유입 데이터가 있는 {fmtDay(data.clampedFrom)}부터 집계했어요</span>
+          )}
+          {cur && data?.attributionStale && data.attributionAsOf && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30">
+              ⚠ Mixpanel 조회 한도로 {fmtClock(data.attributionAsOf)} 기준 유입 데이터예요
+            </span>
+          )}
+          {cur && !data?.attributionStale && data?.attributionAsOf && (
+            <span className="text-xs text-gray-400 dark:text-zinc-500">유입 데이터 {fmtClock(data.attributionAsOf)} 기준 · 15분마다 갱신</span>
           )}
         </div>
         <Seg value={mode} onChange={setMode} label="고객 범위" options={[["all", "전체 고객"], ["new", "신규 고객만"]]} />
