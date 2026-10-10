@@ -11,11 +11,12 @@
  * 캠페인 이름·ID 를 하드코딩하지 않는다 — Meta insights 에서 받은 목록을 넘겨받음.
  */
 
-export type ChannelGroup = "meta" | "search" | "owned" | "influencer" | "referral" | "unattributed";
+export type ChannelGroup = "meta" | "search" | "search_ad" | "owned" | "influencer" | "referral" | "unattributed";
 
 export const CHANNEL_LABEL: Record<ChannelGroup, string> = {
   meta: "메타 광고",
   search: "검색",
+  search_ad: "검색광고",
   owned: "자사 SNS",
   influencer: "인플루언서",
   referral: "레퍼럴",
@@ -57,6 +58,11 @@ const MANUAL_TAG_KEYWORD: Array<[RegExp, string]> = [
 
 const OWNED_SOURCE: Record<string, string> = { ig: "인스타 프로필", kakao: "카카오 채널", meta: "페이스북 프로필", fb: "페이스북 프로필" };
 const META_SOURCES = new Set(["ig", "fb", "meta", "th", "fbig", "an", "msg"]);
+// 유료 검색광고 매체값 (네이버 파워링크 = utm_source=naver&utm_medium=cpc). 메타 게재 위치 source 면 메타로 둔다.
+const SEARCH_AD_MEDIUMS = new Set(["cpc", "ppc", "sa", "paid_search"]);
+const SEARCH_AD_NAME: Record<string, string> = { naver: "네이버 파워링크", google: "구글 검색광고" };
+// 로그인·결제 중간 페이지 — 유입 경로가 아니므로 referrer 로 쓰지 않는다.
+const REDIRECT_REF = /(^|\.)nid\.naver\.com$|(^|\.)pay\.naver\.com$/;
 
 function byUtm(a: PurchaseAttribution, campaigns: CampaignRef[]): ChannelResult {
   const src = (a.src || "").toLowerCase();
@@ -74,6 +80,10 @@ function byUtm(a: PurchaseAttribution, campaigns: CampaignRef[]): ChannelResult 
       const hit = campaigns.find((c) => c.name.includes(keyword));
       return hit ? { group: "meta", detail: hit.name, campaignId: hit.id } : { group: "meta", detail: keyword };
     }
+  }
+  if (SEARCH_AD_MEDIUMS.has(med) && !META_SOURCES.has(src)) {
+    const name = SEARCH_AD_NAME[src] || src || "검색광고";
+    return { group: "search_ad", detail: camp ? `${name} · ${camp}` : name };
   }
   if (/^\d{12,}$/.test(camp) || med === "paid" || med === "display" || META_SOURCES.has(src)) {
     return { group: "meta", detail: "캠페인 불명" };
@@ -94,7 +104,7 @@ export function classifyChannel(a: PurchaseAttribution | undefined, campaigns: C
   if (!a) return { group: "unattributed", detail: "Mixpanel 기록 없음" };
   if (a.src || a.camp || a.inf || a.med) return byUtm(a, campaigns);
   if (a.fbclid) return { group: "meta", detail: "캠페인 불명" };
-  if (a.ref) return byReferrer(a.ref);
+  if (a.ref && !REDIRECT_REF.test(a.ref)) return byReferrer(a.ref);
   if (a.app === "NAVER") return { group: "search", detail: "네이버 앱" };
   if (a.app === "IG" || a.app === "FB") return { group: "unattributed", detail: "인스타 인앱(광고/오가닉 불명)" };
   if (a.app === "KAKAO") return { group: "unattributed", detail: "카카오톡 인앱" };

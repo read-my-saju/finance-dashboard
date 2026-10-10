@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const from = searchParams.get("from") || "2026-06-19";
-  const until = searchParams.get("until") || new Date().toISOString().slice(0, 10);
+  const until = searchParams.get("until") || new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); // KST 오늘
 
   try {
     const { items, debug } = await fetchAllTossTransactions({ from, until });
