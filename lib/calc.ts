@@ -8,7 +8,7 @@
  *   PG수수료(pgFee)          = 결제매출(VAT 포함 실제 결제금액) × 요율(결제일별: ~6/18 3.52% 일괄 / 6/19~ 결제수단별)
  *                              (PG 는 결제금액 전체에 요율을 매김. 토스 정산: payOutAmount = amount − fee.
  *                               수수료 부가세는 매입세액공제 대상이라 원가에 넣지 않음 — 2026-09-08 수정)
- *   리포트 생성원가          = 결제완료 건수 × 건당원가(결제일별: ~2026-04 250 / 2026-05 266 / 2026-06 390 / 2026-07 870 / 2026-08 750 / 2026-09 1590 / 2026-10~ 1590)
+ *   리포트 생성원가          = 결제완료 건수 × 건당원가(결제일별: ~2026-04 250 / 2026-05 266 / 2026-06 390 / 2026-07 870 / 2026-08 750 / 2026-09 1590 / 2026-10~ 1590 / 2026-10-10 19:11~ 430 Luna)
  *   ROAS                     = 결제매출(VAT 포함) / 광고비 × 100
  *   손익분기 ROAS (BEP)      = 결제매출(VAT포함) / 손익분기광고비 × 100 (원가구조 기반 동적)
  *      손익분기광고비          = VAT제외매출 - PG - 리포트원가 (공헌이익 0 이 되는 광고비)
@@ -109,6 +109,26 @@ export const REPORT_COST_PER_UNIT_2026_07 = 870;
 export const REPORT_COST_PER_UNIT_2026_08 = 750;
 export const REPORT_COST_PER_UNIT_2026_09 = 1590;
 export const REPORT_COST_PER_UNIT_2026_10 = 1590;
+
+/**
+ * 2026-10-10 19:11 KST 운영 리포트 생성 모델 Claude → Luna 전환 (성수님 DM "루나 적용했습니다").
+ * 리포트 원가만 Luna 단가로 바꾸고 상담·이미지는 10/5 실측 그대로:
+ *   리포트(Luna, 성수님 10/10 측정): 인생 $0.022 · 연애 $0.021 · 궁합 $0.011 × 1.1(VAT) × 1,344.6 ≈ 건당 32원,
+ *   10/11 결제 구성(세트 포함 결제 1건당 리포트 1.15건, 질문권은 0건) → 결제 1건당 36원
+ *   + 상담 184 + 이미지 210 = 430원
+ */
+export const REPORT_COST_LUNA_FROM_MS = Date.parse("2026-10-10T19:11:00+09:00");
+export const REPORT_COST_PER_UNIT_LUNA = 430;
+
+/** 결제 시각까지 보는 건당 원가. 모델 전환처럼 하루 중간에 바뀌는 단가는 여기서만 갈린다. */
+export function reportCostPerUnitAt(
+  date: string,
+  atMs: number,
+  base: number = DEFAULT_REPORT_COST_PER_UNIT,
+): number {
+  if (atMs >= REPORT_COST_LUNA_FROM_MS) return REPORT_COST_PER_UNIT_LUNA;
+  return reportCostPerUnitForDate(date, base);
+}
 
 export function reportCostPerUnitForDate(
   date: string,

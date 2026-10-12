@@ -157,7 +157,12 @@ function Hero({ cur, prev: prevPeriod, mode, colors }: { cur: ChannelPeriod; pre
   const share = cur.revenue > 0 ? (meta.rev / cur.revenue) * 100 : 0;
   const shortName = useShortNames(meta.children);
   const below = meta.children.filter((k) => k.spend > 0 && (roasOf(k, mode) ?? Infinity) < bep).map((k) => shortName(k.name));
-  const verdict = d == null ? null : toneOf(d);
+  // 전체 고객: 메타 ROAS 범위(귀속~픽셀)로 판정. 신규 고객: 픽셀에 신규 구분이 없어 귀속 값 하나로 판정.
+  const lo = isNew ? val : cur.metaRoasLow;
+  const hi = isNew ? val : cur.metaRoasHigh;
+  const verdict = d == null || lo == null || hi == null ? null
+    : isNew ? toneOf(d)
+    : lo >= bep ? "good" : hi < bep ? "bad" : "warn";
 
   return (
     <section className={`${CARD} grid gap-4 lg:grid-cols-12`} aria-labelledby="ch-q1">
@@ -177,15 +182,21 @@ function Hero({ cur, prev: prevPeriod, mode, colors }: { cur: ChannelPeriod; pre
           </div>
         </div>
         {val != null && (
-          <div className="relative pt-5" aria-label={`손익분기 ${pct(bep)} 대비 ${pct(val)}`}>
+          <div className="relative pt-5" aria-label={`손익분기 ${pct(bep)} 대비 ${pct(lo)}~${pct(hi)}`}>
             <span className="absolute top-0 -translate-x-1/2 whitespace-nowrap text-[11px] font-bold tabular-nums text-gray-600 dark:text-zinc-300" style={{ left: `${scale(bep)}%` }}>
               손익분기 {pct(bep)}
             </span>
             <div className="relative h-3 rounded-full bg-gray-100 dark:bg-zinc-800">
-              <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${scale(val)}%`, background: live || (d != null && d >= 0) ? colors.meta : "#e11d48" }} />
+              <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${scale(lo ?? val)}%`, background: live || verdict !== "bad" ? colors.meta : "#e11d48" }} />
+              {lo != null && hi != null && hi > lo && (
+                <div className="absolute inset-y-0 rounded-r-full" style={{ left: `${scale(lo)}%`, width: `${scale(hi) - scale(lo)}%`, background: `repeating-linear-gradient(135deg, ${colors.meta}66 0 4px, transparent 4px 7px)` }} />
+              )}
               <div className="absolute -bottom-1.5 -top-1.5 w-0.5 rounded bg-gray-900 dark:bg-zinc-100" style={{ left: `calc(${scale(bep)}% - 1px)` }} />
             </div>
             <div className="mt-1.5 flex justify-between text-[11px] tabular-nums text-gray-400 dark:text-zinc-500"><span>0%</span><span>100%</span><span>200%</span></div>
+            {!isNew && lo != null && hi != null && hi > lo && (
+              <p className="mt-1 text-xs tabular-nums text-gray-500 dark:text-zinc-400">빗금 = 메타 광고관리자가 더 잡은 몫 · 범위 {pct(lo)} ~ {pct(hi)}</p>
+            )}
           </div>
         )}
         {live ? (
@@ -194,7 +205,11 @@ function Hero({ cur, prev: prevPeriod, mode, colors }: { cur: ChannelPeriod; pre
           </span>
         ) : verdict && d != null && (
           <span className={`w-fit rounded-lg border px-2.5 py-1 text-sm font-bold ${TONE[verdict]}`}>
-            {verdict === "good" ? `✔ 손익분기보다 ${d.toFixed(1)}%p 높아요 · 증액 가능`
+            {!isNew
+              ? verdict === "good" ? "✔ 범위 전체가 손익분기 위예요 · 증액 가능"
+                : verdict === "warn" ? "▲ 범위가 손익분기에 걸쳐 있어요 · 유지"
+                : "✖ 범위 전체가 손익분기 아래예요 · 감액 검토"
+              : verdict === "good" ? `✔ 손익분기보다 ${d.toFixed(1)}%p 높아요 · 증액 가능`
               : verdict === "warn" ? `▲ 손익분기보다 ${d.toFixed(1)}%p 높아요 · 여유가 작아요`
               : `✖ 손익분기보다 ${Math.abs(d).toFixed(1)}%p 낮아요 · 광고비 주의`}
           </span>

@@ -518,7 +518,7 @@ export default function Dashboard() {
       {/* ── 4. 하단 상세 (접기 가능) ────────────────────────────────────── */}
       <div className="mt-8 space-y-4">
         <Card>
-          <CardHeader title="캠페인 TOP 10" badge="지출액 기준" />
+          <CardHeader title="캠페인 TOP 10" badge="지출액 기준 · ROAS 픽셀 기준" />
           <CampaignTop10 campaigns={campaigns?.campaigns ?? []} bep={summary?.totals.breakEvenRoas ?? BREAK_EVEN_ROAS_FALLBACK} />
         </Card>
 
@@ -528,7 +528,7 @@ export default function Dashboard() {
 
         <CollapsibleCard
           title="Meta 캠페인 (광고비 큰 순)"
-          subtitle={campaigns ? `${campaigns.campaigns.length}개 캠페인` : undefined}
+          subtitle={campaigns ? `${campaigns.campaigns.length}개 캠페인 · ROAS 픽셀 기준` : undefined}
           defaultOpen={false}
         >
           <CampaignTable campaigns={campaigns?.campaigns ?? []} loading={loading} error={campaigns?.metaError ?? null} />

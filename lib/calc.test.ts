@@ -9,7 +9,7 @@
  *   945,000 × 3.2% = 30,240. (VAT 제외 859,091 × 3.2% = 27,491 은 틀린 값)
  */
 import assert from "node:assert/strict";
-import { calc, pgFeeRateForMethodOnDate, reportCostPerUnitForDate } from "./calc";
+import { calc, pgFeeRateForMethodOnDate, reportCostPerUnitAt, reportCostPerUnitForDate } from "./calc";
 import { computeProfit } from "./profit";
 
 const r = calc({ netRevenue: 945_000, adSpend: 0, reportCount: 0, pgFeeRate: 0.032, reportCostPerUnit: 0 });
@@ -56,5 +56,21 @@ const s = computeProfit({
   range: { from: "2026-08-13", until: "2026-08-13" },
 });
 assert.ok(Math.abs(s.totals.pgFee - 56_978) / 56_978 < 0.01, `settlement 2026-08-13 pgFee=${s.totals.pgFee}`);
+
+// 10/10 19:11 KST Luna 전환: 그 시각 이후 결제만 430원, 같은 날 앞선 결제는 1,590원
+assert.equal(reportCostPerUnitAt("2026-10-10", Date.parse("2026-10-10T19:10:59+09:00")), 1590);
+assert.equal(reportCostPerUnitAt("2026-10-10", Date.parse("2026-10-10T19:11:00+09:00")), 430);
+const luna = computeProfit({
+  payments: [
+    { id: "a", status: "PAID", paidAt: "2026-10-10T18:00:00+09:00", amount: { total: 29_900 }, method: { type: "CARD" } } as any,
+    { id: "b", status: "PAID", paidAt: "2026-10-10T21:00:00+09:00", amount: { total: 29_900 }, method: { type: "CARD" } } as any,
+  ],
+  metaByDay: [],
+  range: { from: "2026-10-10", until: "2026-10-10" },
+});
+assert.equal(luna.daily[0].reportCost, 1590 + 430, `luna.daily.reportCost=${luna.daily[0].reportCost}`);
+assert.equal(luna.totals.reportCost, 1590 + 430);
+// 화면 "리포트 ₩X/건" 은 기간 실제 평균 단가
+assert.equal(luna.settings.reportCostPerUnit, (1590 + 430) / 2);
 
 console.log("calc.test OK");

@@ -8,7 +8,7 @@
  */
 import assert from "node:assert/strict";
 import { classifyChannel, type CampaignRef, type PurchaseAttribution } from "./channel";
-import { buildChannelPeriod } from "./channel-revenue";
+import { buildChannelPeriod, metaRoasRange } from "./channel-revenue";
 import { onePerTx } from "./mixpanel";
 import { buildRecords, daysBetween, isFinal, planFetch, splitByDay, type DayRecord } from "./mixpanel-store";
 
@@ -183,5 +183,12 @@ const built = buildRecords(fetchedRows, ["2026-10-01", "2026-10-09"], new Map([[
 assert.deepEqual([...built.keys()], ["2026-10-01", "2026-10-09"], "중간 날짜(10/5)는 기록하지 않음");
 assert.equal(built.get("2026-10-01")!.complete, true);
 assert.equal(built.get("2026-10-09")!.complete, false, "토스 4건 중 1건만 찾음 → 불완전");
+
+// 메타 ROAS 범위: 하한 귀속 ~ 상한 max(귀속, 픽셀), 상한은 MER 을 넘지 않음
+assert.deepEqual(metaRoasRange(140, 152.3, 162.5), { low: 140, high: 152.3 });
+assert.deepEqual(metaRoasRange(150, 90, 180), { low: 150, high: 150 });           // 최근 며칠 픽셀 집계 지연 — 하한을 끌어내리지 않음
+assert.deepEqual(metaRoasRange(150, 190, 170), { low: 150, high: 170 });           // 메타 주장이 회사 전체 매출 초과
+assert.deepEqual(metaRoasRange(140, null, 160), { low: 140, high: 140 });
+assert.deepEqual(metaRoasRange(null, 150, null), { low: null, high: null });        // 광고비 0
 
 console.log("channel.test OK");
