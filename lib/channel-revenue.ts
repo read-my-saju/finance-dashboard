@@ -11,6 +11,9 @@
  *   신규 고객 ROAS(aMER) = 메타 귀속 매출 중 첫 결제 고객분 ÷ 메타 광고비
  *   nCAC               = 메타 광고비 ÷ 메타 귀속 첫 결제 건수
  *   귀속률              = (전체 − 미귀속) 매출 ÷ 전체 매출
+ *   메타 ROAS 범위       = 하한 귀속 ~ 상한 max(귀속, 픽셀) (단 MER 초과분은 자름, 2026-10-12 확정)
+ *                          메타는 광고 본 뒤 검색·프로필로 들어와 산 매출도 자기 몫으로 잡아서, 둘 사이가 실제 효과.
+ *                          픽셀은 광고 본 날에 매출을 붙여 최근 며칠은 덜 찬 값이라 하한으로 쓰지 않는다.
  */
 import type { PortonePayment } from "./portone";
 import { aggregateMetaByDay, type MetaInsightRow } from "./meta";
@@ -58,6 +61,8 @@ export type ChannelPeriod = {
   mer: number | null;
   metaRoas: number | null;
   metaBreakEvenRoas: number;
+  metaRoasLow: number | null;
+  metaRoasHigh: number | null;
   newCustomerRoas: number | null;
   newCustomerCac: number | null;
   pixelRoas: number | null;
@@ -97,6 +102,13 @@ function summarize(key: string, name: string, items: Tagged[], rows: MetaInsight
     breakEvenRoas: all.breakEvenRoas,
     contributionProfit: all.contributionProfit,
   };
+}
+
+/** 메타 ROAS 범위. 하한은 실제 결제로 확인한 귀속, 상한은 메타 주장(회사 전체 매출 MER 을 넘을 수 없음). */
+export function metaRoasRange(attributed: number | null, pixel: number | null, mer: number | null): { low: number | null; high: number | null } {
+  if (attributed == null) return { low: null, high: null };
+  const claim = pixel == null ? attributed : mer == null ? pixel : Math.min(pixel, mer);
+  return { low: attributed, high: Math.max(attributed, claim) };
 }
 
 function ymdRange(from: string, until: string): string[] {
@@ -169,6 +181,7 @@ export function buildChannelPeriod(args: {
   const restored = computeProfit({ payments: tagged.filter((t) => t.restored).map((t) => t.p), metaByDay: [], range }).totals;
   const meta = groups[0];
   const unattributed = groups.find((g) => g.group === "unattributed")!;
+  const roasRange = metaRoasRange(meta.roas, meta.pixelRoas, total.roas);
 
   return {
     range,
@@ -178,6 +191,8 @@ export function buildChannelPeriod(args: {
     mer: total.roas,
     metaRoas: meta.roas,
     metaBreakEvenRoas: meta.breakEvenRoas,
+    metaRoasLow: roasRange.low,
+    metaRoasHigh: roasRange.high,
     newCustomerRoas: calculateRoas(meta.newRev, meta.spend),
     newCustomerCac: meta.newN > 0 ? meta.spend / meta.newN : null,
     pixelRoas: meta.pixelRoas,

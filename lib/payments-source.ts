@@ -17,6 +17,18 @@ function isoStartOfDay(s: string): string {
 function isoEndOfDay(s: string): string {
   return new Date(s + "T23:59:59+09:00").toISOString();
 }
+// 결제 뒤 며칠 지나 환불되는 건을 결제일 매출에서 빼려고, 토스는 기간 끝 뒤로 이만큼(오늘까지) 더 받는다.
+const REFUND_LOOKAHEAD_DAYS = 30;
+
+function refundLookaheadUntil(until: string): string {
+  const d = new Date(`${until}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + REFUND_LOOKAHEAD_DAYS);
+  const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  const ahead = d.toISOString().slice(0, 10);
+  const end = ahead < today ? ahead : today;
+  return end > until ? end : until;
+}
+
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
@@ -44,7 +56,7 @@ export async function fetchCombinedPayments(opts: {
       ? fetchAllPaidPayments({ fromISO, untilISO })
       : Promise.resolve({ items: [] as PortonePayment[], debug: null }),
     hasToss
-      ? fetchAllTossTransactions({ from: opts.from, until: opts.until })
+      ? fetchAllTossTransactions({ from: opts.from, until: refundLookaheadUntil(opts.until) })
       : Promise.resolve({ items: [], debug: null }),
   ]);
 
@@ -62,7 +74,7 @@ export async function fetchCombinedPayments(opts: {
   let tossPayments: PortonePayment[] = [];
   let tossDebug: unknown = null;
   if (tRes.status === "fulfilled") {
-    tossPayments = tossToPortonePayments(tRes.value.items);
+    tossPayments = tossToPortonePayments(tRes.value.items, { approvedUntil: opts.until });
     tossDebug = tRes.value.debug;
   } else {
     warnings.push(`Toss 조회 실패: ${errMsg(tRes.reason)}`);

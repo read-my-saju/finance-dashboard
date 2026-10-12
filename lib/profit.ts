@@ -22,14 +22,13 @@ import {
   calculateBreakEvenRoas,
   calculateContributionMargin,
   calculateContributionProfit,
-  calculateReportCost,
   calculateRevenueExVat,
   calculateRoas,
   calculateVat,
   pgFeeRateForMethodOnDate,
   DEFAULT_PG_FEE_RATE,
   DEFAULT_REPORT_COST_PER_UNIT,
-  reportCostPerUnitForDate,
+  reportCostPerUnitAt,
   type CalcResult,
 } from "./calc";
 
@@ -73,13 +72,13 @@ function ymd(d: Date): string {
  *
  * CANCELLED 는 PortOne 콘솔의 "거래취소액" 별도 통계이므로 일별 순매출에서 빼지 않음.
  */
+type DayAgg = { netRevenue: number; reportCount: number; cancelledAmount: number; pgFee: number; reportCost: number };
+
 function aggregatePortoneByDay(
   payments: PortonePayment[],
-): Map<string, { netRevenue: number; reportCount: number; cancelledAmount: number; pgFee: number }> {
-  const m = new Map<
-    string,
-    { netRevenue: number; reportCount: number; cancelledAmount: number; pgFee: number }
-  >();
+  reportCostBase: number,
+): Map<string, DayAgg> {
+  const m = new Map<string, DayAgg>();
 
   function bump(
     date: string,
@@ -87,12 +86,14 @@ function aggregatePortoneByDay(
     reportDelta: number,
     cancelDelta: number,
     feeDelta: number,
+    costDelta = 0,
   ) {
-    const cur = m.get(date) || { netRevenue: 0, reportCount: 0, cancelledAmount: 0, pgFee: 0 };
+    const cur = m.get(date) || { netRevenue: 0, reportCount: 0, cancelledAmount: 0, pgFee: 0, reportCost: 0 };
     cur.netRevenue += netDelta;
     cur.reportCount += reportDelta;
     cur.cancelledAmount += cancelDelta;
     cur.pgFee += feeDelta;
+    cur.reportCost += costDelta;
     m.set(date, cur);
   }
 
@@ -117,15 +118,17 @@ function aggregatePortoneByDay(
     const at = parseIso(p.paidAt) || parseIso(p.requestedAt);
     if (!at) continue;
     const date = ymd(at);
+    // 리포트 원가는 결제 시각 기준 단가 (모델 전환이 하루 중간에 있어서 날짜만으론 못 가름).
+    const cost = reportCostPerUnitAt(date, at.getTime(), reportCostBase);
 
     if (status === "PAID") {
-      bump(date, total, 1, 0, feeFor(p, total, date));
+      bump(date, total, 1, 0, feeFor(p, total, date), cost);
     } else if (status === "CANCELLED") {
       // PortOne 콘솔 순거래액은 CANCELLED 제외. 일별 통계에도 미반영.
       bump(date, 0, 0, total, 0);
     } else if (status === "PARTIAL_CANCELLED") {
       const net = total - cancelledAmt;
-      bump(date, net, 1, cancelledAmt, feeFor(p, net, date));
+      bump(date, net, 1, cancelledAmt, feeFor(p, net, date), cost);
     }
   }
 
@@ -168,7 +171,7 @@ export function computeProfit(args: {
   const pgFeeRate = args.pgFeeRate ?? DEFAULT_PG_FEE_RATE;
   const reportCostPerUnit = args.reportCostPerUnit ?? DEFAULT_REPORT_COST_PER_UNIT;
 
-  const portoneByDay = aggregatePortoneByDay(args.payments);
+  const portoneByDay = aggregatePortoneByDay(args.payments, reportCostPerUnit);
   const adByDay = new Map<string, number>();
   for (const r of args.metaByDay) {
     adByDay.set(r.date, (adByDay.get(r.date) || 0) + (Number(r.spend) || 0));
@@ -182,19 +185,18 @@ export function computeProfit(args: {
   let totalReport = 0;
   let totalAdSpend = 0;
   let totalCancelled = 0;
-  let totalReportCost = 0;   // 일별(날짜별 단가) reportCost 합산 — 기간 합계 정합성용
+  let totalReportCost = 0;   // 일별(결제 시각별 단가) reportCost 합산 — 기간 합계 정합성용
   let totalPgFee = 0;        // 결제수단별 PG수수료 합산 — 기간 합계 정합성용
 
   for (const date of Array.from(allDates).sort()) {
-    const po = portoneByDay.get(date) || { netRevenue: 0, reportCount: 0, cancelledAmount: 0, pgFee: 0 };
+    const po = portoneByDay.get(date) || { netRevenue: 0, reportCount: 0, cancelledAmount: 0, pgFee: 0, reportCost: 0 };
     const adSpend = adByDay.get(date) || 0;
 
     const netRevenue = po.netRevenue;
     const vat = calculateVat(netRevenue);
     const revenueExVat = calculateRevenueExVat(netRevenue);
     const pgFee = po.pgFee;   // 결제수단별 요율로 이미 합산됨 (calc.ts pgFeeRateForMethod)
-    const perUnit = reportCostPerUnitForDate(date, reportCostPerUnit);
-    const reportCost = calculateReportCost(po.reportCount, perUnit);
+    const reportCost = po.reportCost;   // 결제 시각별 단가로 이미 합산됨 (calc.ts reportCostPerUnitAt)
     const cp = calculateContributionProfit(revenueExVat, pgFee, reportCost, adSpend);
     const cm = calculateContributionMargin(cp, netRevenue);
     const roas = calculateRoas(netRevenue, adSpend);
@@ -236,10 +238,12 @@ export function computeProfit(args: {
 
   // 화면 "PG X%" 표기는 실효 혼합요율(합산 수수료 / 결제매출(VAT 포함))로 노출.
   const effectivePgRate = totalNetRevenue > 0 ? totalPgFee / totalNetRevenue : pgFeeRate;
+  // 화면 "리포트 ₩X/건" 도 기간 실제 평균 단가 (기본 단가 250원을 그대로 보여주던 표기 오류 수정).
+  const effectiveReportCost = totalReport > 0 ? totalReportCost / totalReport : reportCostPerUnit;
 
   return {
     range: args.range,
-    settings: { pgFeeRate: effectivePgRate, reportCostPerUnit },
+    settings: { pgFeeRate: effectivePgRate, reportCostPerUnit: effectiveReportCost },
     totals: {
       ...periodCalc,
       reportCount: totalReport,

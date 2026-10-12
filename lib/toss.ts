@@ -40,6 +40,10 @@ function authHeader(): Record<string, string> {
   };
 }
 
+function kstYmd(iso: string): string {
+  return new Date(Date.parse(iso) + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
 // yyyy-mm-dd → KST 경계 문자열. 토스 거래조회는 KST 기준이라 +09:00 을 명시.
 function kstStart(d: string): string {
   return `${d}T00:00:00+09:00`;
@@ -155,7 +159,7 @@ type TossGroup = {
  * 변환 결과는 aggregate.ts / profit.ts 의 PAID·CANCELLED·PARTIAL_CANCELLED 정의에
  * 그대로 태워 순매출 = 승인 - 취소 로 잡힌다.
  */
-export function tossToPortonePayments(txns: TossTransaction[]): PortonePayment[] {
+export function tossToPortonePayments(txns: TossTransaction[], opts: { approvedUntil?: string } = {}): PortonePayment[] {
   const groups = new Map<string, TossGroup>();
 
   for (const t of txns) {
@@ -194,6 +198,8 @@ export function tossToPortonePayments(txns: TossTransaction[]): PortonePayment[]
   const out: PortonePayment[] = [];
   for (const g of groups.values()) {
     if (g.approved <= 0) continue; // 조회범위에 취소 행만 있는 경우 등 → 매출 아님
+    // 뒤늦은 환불을 잡으려고 기간 뒤까지 받아온 거래 중, 기간 뒤에 승인된 결제는 뺀다.
+    if (opts.approvedUntil && g.at && kstYmd(g.at) > opts.approvedUntil) continue;
     const canceled = Math.min(g.canceled, g.approved); // 과다취소 방지
     let status: string;
     if (canceled <= 0) status = "PAID";
