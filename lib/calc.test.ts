@@ -45,7 +45,7 @@ assert.equal(reportCostPerUnitForDate("2026-08-01"), 750);
 assert.equal(reportCostPerUnitForDate("2026-08-31"), 750);
 assert.equal(reportCostPerUnitForDate("2026-09-01"), 1590);
 assert.equal(reportCostPerUnitForDate("2026-09-30"), 1590);
-assert.equal(reportCostPerUnitForDate("2026-10-01"), 1590);
+assert.equal(reportCostPerUnitForDate("2026-10-01"), 1752);
 
 // 실제 정산 메일 재현: 매출일 2026-08-13 매출액 1,778,260 → PG이용료 56,978 (오차 1% 이내)
 const s = computeProfit({
@@ -57,8 +57,8 @@ const s = computeProfit({
 });
 assert.ok(Math.abs(s.totals.pgFee - 56_978) / 56_978 < 0.01, `settlement 2026-08-13 pgFee=${s.totals.pgFee}`);
 
-// 10/10 19:11 KST Luna 전환: 그 시각 이후 결제만 485원, 같은 날 앞선 결제는 1,590원
-assert.equal(reportCostPerUnitAt("2026-10-10", Date.parse("2026-10-10T19:10:59+09:00")), 1590);
+// 10/10 19:11 KST Luna 전환: 그 시각 이후 결제만 485원, 같은 날 앞선 결제는 1,752원
+assert.equal(reportCostPerUnitAt("2026-10-10", Date.parse("2026-10-10T19:10:59+09:00")), 1752);
 assert.equal(reportCostPerUnitAt("2026-10-10", Date.parse("2026-10-10T19:11:00+09:00")), 485);
 const luna = computeProfit({
   payments: [
@@ -68,9 +68,9 @@ const luna = computeProfit({
   metaByDay: [],
   range: { from: "2026-10-10", until: "2026-10-10" },
 });
-assert.equal(luna.daily[0].reportCost, 1590 + 485, `luna.daily.reportCost=${luna.daily[0].reportCost}`);
-assert.equal(luna.totals.reportCost, 1590 + 485);
+assert.equal(luna.daily[0].reportCost, 1752 + 485, `luna.daily.reportCost=${luna.daily[0].reportCost}`);
+assert.equal(luna.totals.reportCost, 1752 + 485);
 // 화면 "리포트 ₩X/건" 은 기간 실제 평균 단가
-assert.equal(luna.settings.reportCostPerUnit, (1590 + 485) / 2);
+assert.equal(luna.settings.reportCostPerUnit, (1752 + 485) / 2);
 
 console.log("calc.test OK");
