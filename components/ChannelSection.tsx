@@ -43,7 +43,7 @@ const TIPS = {
   aroas: "메타 광고로 들어와 처음 결제한 고객의 결제액 ÷ 메타 광고비. 광고가 새 고객을 데려오는 효율이에요(aMER). 7월 하순 이전 결제 기록은 Mixpanel에 없어서, 그때 산 고객의 재구매는 신규로 잡힐 수 있어요.",
   mer: "전체 매출 ÷ 메타 광고비. 네이버 검색·인스타 프로필 같은 광고 외 매출도 포함돼서 광고 성과보다 높게 나와요. 네이버 검색광고비는 아직 연동되지 않아 광고비에 빠져 있어요.",
   ncac: "메타 광고비 ÷ 메타로 들어온 신규 구매자 수. 새 고객 1명을 데려오는 데 든 비용이에요.",
-  pixel: "메타 광고관리자가 자체 집계한 구매액 ÷ 광고비. 7일 클릭·1일 조회 기준이라 실제보다 크게 잡혀요.",
+  pixel: "메타 광고관리자가 자체 집계한 구매액 ÷ 광고비(광고관리자 ROAS와 같은 값). 7일 클릭·1일 조회 기준이라 실제보다 크게 잡히고, 결제일이 아니라 광고를 본 날에 매출을 붙여서 최근 며칠은 숫자가 계속 올라가요.",
   cov: "결제 중 유입 채널을 확인한 비율. 결제 이벤트에 UTM이 없으면 결제 전 7일 방문기록으로 복원해요.",
 };
 
@@ -52,11 +52,11 @@ const won = (n: number) => `₩${NUM.format(Math.round(n))}`;
 const man = (n: number) => (Math.abs(n) >= 1e8 ? `${(n / 1e8).toFixed(2)}억` : `${NUM.format(Math.round(n / 1e4))}만`);
 const pct = (n: number | null | undefined, d = 1) => (n == null || !Number.isFinite(n) ? "—" : `${n.toFixed(d)}%`);
 const fmtDay = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+const kstToday = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 // KST 시각. 오늘이 아니면 날짜도 붙인다.
 const fmtClock = (iso: string) => {
   const k = new Date(Date.parse(iso) + 9 * 3600 * 1000).toISOString();
-  const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
-  return `${k.slice(0, 10) === today ? "" : fmtDay(k.slice(0, 10)) + " "}${k.slice(11, 16)}`;
+  return `${k.slice(0, 10) === kstToday() ? "" : fmtDay(k.slice(0, 10)) + " "}${k.slice(11, 16)}`;
 };
 const revOf = (o: ChannelRow, mode: Mode) => (mode === "new" ? o.newRev : o.rev);
 const cntOf = (o: ChannelRow, mode: Mode) => (mode === "new" ? o.newN : o.n);
@@ -142,7 +142,11 @@ function Kpi({ label, tip, value, delta, sub }: { label: string; tip: string; va
   );
 }
 
-function Hero({ cur, prev, mode, colors }: { cur: ChannelPeriod; prev: ChannelPeriod | null; mode: Mode; colors: Record<ChannelGroup, string> }) {
+function Hero({ cur, prev: prevPeriod, mode, colors }: { cur: ChannelPeriod; prev: ChannelPeriod | null; mode: Mode; colors: Record<ChannelGroup, string> }) {
+  // 오늘 하루만 볼 때: 오전엔 광고비가 먼저 쌓이고 결제는 나중에 들어와서, 어제 하루 전체와 비교하거나
+  // 손익분기로 판정하면 항상 나빠 보인다 → 비교·판정을 숨기고 '진행 중'만 표시.
+  const live = cur.range.from === cur.range.until && cur.range.until === kstToday();
+  const prev = live ? null : prevPeriod;
   const meta = cur.groups[0];
   const isNew = mode === "new";
   const val = isNew ? cur.newCustomerRoas : cur.metaRoas;
@@ -178,13 +182,17 @@ function Hero({ cur, prev, mode, colors }: { cur: ChannelPeriod; prev: ChannelPe
               손익분기 {pct(bep)}
             </span>
             <div className="relative h-3 rounded-full bg-gray-100 dark:bg-zinc-800">
-              <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${scale(val)}%`, background: d != null && d >= 0 ? colors.meta : "#e11d48" }} />
+              <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${scale(val)}%`, background: live || (d != null && d >= 0) ? colors.meta : "#e11d48" }} />
               <div className="absolute -bottom-1.5 -top-1.5 w-0.5 rounded bg-gray-900 dark:bg-zinc-100" style={{ left: `calc(${scale(bep)}% - 1px)` }} />
             </div>
             <div className="mt-1.5 flex justify-between text-[11px] tabular-nums text-gray-400 dark:text-zinc-500"><span>0%</span><span>100%</span><span>200%</span></div>
           </div>
         )}
-        {verdict && d != null && (
+        {live ? (
+          <span className="w-fit rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1 text-sm font-bold text-gray-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+            진행 중인 날이에요 · 하루가 끝난 뒤 판단하세요
+          </span>
+        ) : verdict && d != null && (
           <span className={`w-fit rounded-lg border px-2.5 py-1 text-sm font-bold ${TONE[verdict]}`}>
             {verdict === "good" ? `✔ 손익분기보다 ${d.toFixed(1)}%p 높아요 · 증액 가능`
               : verdict === "warn" ? `▲ 손익분기보다 ${d.toFixed(1)}%p 높아요 · 여유가 작아요`
