@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BREAK_EVEN_ROAS_FALLBACK, calculateBreakEvenRoas, calculateRoas } from "@/lib/calc";
-import { breakAtUnderscore, commonCampaignWords, shortCampaignName } from "@/lib/campaign-name";
+import { calculateBreakEvenRoas, calculateRoas } from "@/lib/calc";
+import { breakAtUnderscore } from "@/lib/campaign-name";
 import ChannelSection, { type ChannelsData } from "./ChannelSection";
 import {
   Bar,
@@ -174,7 +174,7 @@ const LIGHT_PAL: ChartPalette = {
   refline: "#9ca3af",
   barNet: "#e5e7eb",
   barRevenue: "#3b82f6",
-  barAd: "#22c55e",
+  barAd: "#f97316", // 광고비 = 비용 → 비용 구조와 같은 주황 (초록은 이익에만)
   roas: "#8b5cf6",
   profit: "#0f766e",
   today: "#9ca3af",
@@ -193,7 +193,7 @@ const DARK_PAL: ChartPalette = {
   refline: "#71717a",
   barNet: "#3f3f46",
   barRevenue: "#60a5fa",
-  barAd: "#4ade80",
+  barAd: "#fb923c",
   roas: "#a78bfa",
   profit: "#2dd4bf",
   today: "#71717a",
@@ -216,6 +216,22 @@ function tooltipStyle(pal: ChartPalette) {
     labelStyle: { color: pal.tooltipLabel, fontSize: 12 },
     itemStyle: { fontSize: 12 },
   } as const;
+}
+
+// 차트 아래 범례 (막대 = 네모, 선 = 짧은 선).
+function ChartLegend({ items }: { items: Array<{ color: string; label: string; line?: boolean; dashed?: boolean }> }) {
+  return (
+    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-500 dark:text-zinc-400">
+      {items.map((it) => (
+        <span key={it.label} className="inline-flex items-center gap-1.5">
+          {it.line
+            ? <span className="w-4 border-t-2" style={{ borderColor: it.color, borderTopStyle: it.dashed ? "dashed" : "solid" }} />
+            : <span className="h-2.5 w-2.5 rounded-sm" style={{ background: it.color }} />}
+          {it.label}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -249,10 +265,11 @@ function diffDays(from: string, until: string): number {
 function fmtKrw(n: number): string {
   return `₩${NUM.format(Math.round(n))}`;
 }
+// 차트 축·라벨용. 화면 다른 곳(채널 성과 등)과 같은 만·억 단위.
 function fmtKrwShort(v: number): string {
-  if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
-  if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(0)}k`;
-  return String(Math.round(v));
+  if (Math.abs(v) >= 100_000_000) return `${Number((v / 100_000_000).toFixed(1))}억`;
+  if (Math.abs(v) >= 10_000) return `${NUM.format(Math.round(v / 10_000))}만`;
+  return NUM.format(Math.round(v));
 }
 function fmtPct(n: number | null, digits = 1): string {
   if (n === null || !Number.isFinite(n)) return "—";
@@ -306,7 +323,8 @@ function monthLabel(month: string): string {
 // ────────────────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const [from, setFrom] = useState<string>(() => "2026-01-01");
+  // 기본 = 최근 7일 (광고 판정 기간과 같게. 전체 기간은 채널 성과가 9/3부터라 기간이 어긋남)
+  const [from, setFrom] = useState<string>(() => daysAgo(6));
   const [until, setUntil] = useState<string>(() => todayStr());
   const [payments, setPayments] = useState<PaymentsData | null>(null);
   const [summary, setSummary] = useState<SummaryData | null>(null);
@@ -412,17 +430,6 @@ export default function Dashboard() {
 
   const metaError = summary?.metaError || daily?.metaError || campaigns?.metaError || null;
 
-  // 캠페인별 실결제(귀속) ROAS — 채널 성과 표와 같은 값. 9/3 이전이 잘린 기간은 픽셀과 기간이 달라 표시 안 함,
-  // 채널·캠페인 응답이 둘 다 지금 고른 기간일 때만 붙임 (기간 전환 중·한쪽 실패 시 이전 기간 값을 섞지 않음).
-  const isCurrent = (r?: { from: string; until: string }) => r?.from === from && r?.until === until;
-  const sameRange = isCurrent(channels?.range) && isCurrent(campaigns?.range);
-  const attributedRoas = channels?.cur && !channels.clampedFrom && sameRange
-    ? new Map(channels.cur.groups[0].children.filter((c) => c.campaignId).map((c) => [c.campaignId!, c.roas]))
-    : null;
-  const top10Badge = attributedRoas ? "지출액 기준 · ROAS 픽셀 / 실결제"
-    : !channelsLoading && channels?.clampedFrom ? `지출액 기준 · ROAS 픽셀 기준 (실결제는 ${channels.clampedFrom} 이후 기간만)`
-    : "지출액 기준 · ROAS 픽셀 기준";
-
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
       <Header
@@ -485,7 +492,7 @@ export default function Dashboard() {
       {monthly.length >= 2 && (daily?.daily.length ?? 0) > 31 && (
         <div className="mt-4 space-y-4">
           <Card>
-            <CardHeader title="월별 매출 · 광고비 · ROAS 추이" badge={`${monthly.length}개월`} />
+            <CardHeader title="월별 매출 · 광고비 · MER 추이" badge={`${monthly.length}개월`} />
             <MonthlyTrendChart monthly={monthly} pal={pal} />
           </Card>
           <Card>
@@ -495,12 +502,12 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ── 3. ROAS · 비용 구조 · 인사이트 ──────────────────────────────── */}
+      {/* ── 3. MER · 비용 구조 · 인사이트 ───────────────────────────────── */}
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card>
           <CardHeader
-            title="ROAS vs 손익분기 ROAS"
-            badge="원가구조 BEP · 결제매출 기준"
+            title="MER vs 손익분기"
+            badge="전체 결제매출 ÷ 광고비 · 일별"
           />
           <RoasChart rows={daily?.daily ?? []} pal={pal} />
         </Card>
@@ -528,18 +535,13 @@ export default function Dashboard() {
 
       {/* ── 4. 하단 상세 (접기 가능) ────────────────────────────────────── */}
       <div className="mt-8 space-y-4">
-        <Card>
-          <CardHeader title="캠페인 TOP 10" badge={top10Badge} />
-          <CampaignTop10 campaigns={campaigns?.campaigns ?? []} bep={summary?.totals.breakEvenRoas ?? BREAK_EVEN_ROAS_FALLBACK} attributedRoas={attributedRoas} />
-        </Card>
-
         <CollapsibleCard title="일별 손익 표" defaultOpen={false}>
           <DailyTable rows={daily?.daily ?? []} loading={loading} />
         </CollapsibleCard>
 
         <CollapsibleCard
-          title="Meta 캠페인 (광고비 큰 순)"
-          subtitle={campaigns ? `${campaigns.campaigns.length}개 캠페인 · ROAS 픽셀 기준` : undefined}
+          title="Meta 캠페인 운영 지표 (광고관리자 기준)"
+          subtitle={campaigns ? `${campaigns.campaigns.length}개 캠페인 · 소재·전달 진단용 · 증감 판정은 위 채널·캠페인별 성과` : undefined}
           defaultOpen={false}
         >
           <CampaignTable campaigns={campaigns?.campaigns ?? []} loading={loading} error={campaigns?.metaError ?? null} />
@@ -819,7 +821,6 @@ function RoasKpiCard({ totals }: { totals?: ProfitTotals }) {
   const bep = totals?.breakEvenRoas ?? 118;
   const diff = roas !== null ? roas - bep : null;
   const above = diff !== null && diff > 0;
-  const advice = totals?.adAdvice ?? "—";
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700">
@@ -830,17 +831,10 @@ function RoasKpiCard({ totals }: { totals?: ProfitTotals }) {
       <div className="mt-0.5 text-[11px] text-gray-400 dark:text-zinc-500">
         전체 결제매출(VAT 포함) ÷ 광고비 · 손익분기 {fmtPct(bep, 1)} · 메타만 보려면 아래 채널 성과
       </div>
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <span className={`min-w-0 flex-1 text-xs font-medium ${
-          diff === null ? "text-gray-400 dark:text-zinc-500" : above ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-        }`}>
-          {`BEP ${bep.toFixed(0)}% 대비 ${diff !== null ? (diff >= 0 ? "+" : "") + diff.toFixed(1) + "%p" : "—"}`}
-        </span>
-        <span className={`shrink-0 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-none ${
-          advice === "증액 가능" ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-400"
-          : advice === "광고비 주의" ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-400"
-          : "border-gray-200 bg-gray-50 text-gray-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
-        }`}>{advice}</span>
+      <div className={`mt-2 text-xs font-medium ${
+        diff === null ? "text-gray-400 dark:text-zinc-500" : above ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+      }`}>
+        {`손익분기 ${bep.toFixed(0)}% 대비 ${diff !== null ? (diff >= 0 ? "+" : "") + diff.toFixed(1) + "%p" : "—"}`}
       </div>
     </div>
   );
@@ -905,8 +899,8 @@ function DailyProfitChart({ rows, pal }: { rows: DailyRow[]; pal: ChartPalette }
   }
 
   return (
-    <div style={{ width: "100%", height: 320 }}>
-      <ResponsiveContainer>
+    <div>
+      <ResponsiveContainer width="100%" height={300}>
         <ComposedChart data={data} margin={{ top: 14, right: 20, left: 0, bottom: 5 }}>
           <CartesianGrid stroke={pal.grid} strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="date" tick={{ fontSize: 10, fill: pal.axis }} tickLine={false} axisLine={false} />
@@ -941,6 +935,11 @@ function DailyProfitChart({ rows, pal }: { rows: DailyRow[]; pal: ChartPalette }
           )}
         </ComposedChart>
       </ResponsiveContainer>
+      <ChartLegend items={[
+        { color: pal.barRevenue, label: "순매출" },
+        { color: pal.barAd, label: "광고비" },
+        { color: pal.profit, label: "공헌이익", line: true },
+      ]} />
       {monthly ? (
         <p className="mt-2 text-[11px] text-gray-400 dark:text-zinc-500">※ 62일 초과 기간은 월 단위 합계로 표시 — 시작·끝 달은 부분 데이터일 수 있음</p>
       ) : current ? (
@@ -972,7 +971,7 @@ function MonthlyTrendChart({ monthly, pal }: { monthly: MonthlyRow[]; pal: Chart
             <YAxis yAxisId="pct" orientation="right" tick={{ fontSize: 11, fill: pal.roas }} tickLine={false} axisLine={false}
               tickFormatter={(v: number) => `${v.toFixed(0)}%`} />
             <Tooltip
-              formatter={(v: number, name: string) => (name === "ROAS" ? [fmtPct(v, 1), name] : [fmtKrw(v), name])}
+              formatter={(v: number, name: string) => (name === "MER" ? [fmtPct(v, 1), name] : [fmtKrw(v), name])}
               {...tooltipStyle(pal)}
             />
             <Bar yAxisId="krw" dataKey="netRevenue" fill={pal.barRevenue} name="매출" radius={[3, 3, 0, 0]}>
@@ -982,7 +981,7 @@ function MonthlyTrendChart({ monthly, pal }: { monthly: MonthlyRow[]; pal: Chart
               <LabelList dataKey="adSpend" position="top" formatter={(v: number) => fmtKrwShort(v)} fontSize={10} fill={pal.axis} />
             </Bar>
             <Line yAxisId="pct" type="monotone" dataKey="roas" stroke={pal.roas} strokeWidth={2.5}
-              dot={{ r: 4, fill: pal.tooltipBg, stroke: pal.roas, strokeWidth: 2 }} name="ROAS">
+              dot={{ r: 4, fill: pal.tooltipBg, stroke: pal.roas, strokeWidth: 2 }} name="MER">
               <LabelList dataKey="roas" position="top" formatter={(v: number) => `${v.toFixed(1)}%`} fontSize={10} fill={pal.roas} />
             </Line>
           </ComposedChart>
@@ -1037,7 +1036,7 @@ function MonthlyTrendChart({ monthly, pal }: { monthly: MonthlyRow[]; pal: Chart
             </tr>
             <tr className="text-gray-700 dark:text-zinc-300">
               <td className="py-1.5 pr-3">
-                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: pal.roas }} />ROAS</span>
+                <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm" style={{ background: pal.roas }} />MER</span>
               </td>
               {data.map((d) => (
                 <td key={d.label} className="py-1.5 pr-3 text-right font-medium tabular-nums" style={{ color: pal.roas }}>
@@ -1131,8 +1130,8 @@ function RoasChart({ rows, pal }: { rows: DailyRow[]; pal: ChartPalette }) {
   }
 
   return (
-    <div style={{ width: "100%", height: 320 }}>
-      <ResponsiveContainer>
+    <div>
+      <ResponsiveContainer width="100%" height={300}>
         <LineChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
           <CartesianGrid stroke={pal.grid} strokeDasharray="3 3" vertical={false} />
           <XAxis dataKey="date" tick={{ fontSize: 10, fill: pal.axis }} tickLine={false} axisLine={false} />
@@ -1140,10 +1139,11 @@ function RoasChart({ rows, pal }: { rows: DailyRow[]; pal: ChartPalette }) {
             tickFormatter={(v: number) => `${v.toFixed(0)}%`} />
           <Tooltip formatter={(v: number, name: string) => [`${v.toFixed(1)}%`, name]}
             {...tooltipStyle(pal)} />
-          <Line type="monotone" dataKey="bep" stroke={pal.bep} strokeWidth={1.5} strokeDasharray="6 4" dot={false} name="손익분기 ROAS" />
-          <Line type="monotone" dataKey="roas" stroke={pal.profit} strokeWidth={2.5} dot={false} name="ROAS" />
+          <Line type="monotone" dataKey="bep" stroke={pal.bep} strokeWidth={1.5} strokeDasharray="6 4" dot={false} name="손익분기" />
+          <Line type="monotone" dataKey="roas" stroke={pal.profit} strokeWidth={2.5} dot={false} name="MER" />
         </LineChart>
       </ResponsiveContainer>
+      <ChartLegend items={[{ color: pal.profit, label: "MER", line: true }, { color: pal.bep, label: "손익분기", line: true, dashed: true }]} />
     </div>
   );
 }
@@ -1273,7 +1273,7 @@ function PeriodSummaryCard({
     { label: "공헌이익", value: fmtKrw(totals.contributionProfit), tone: totals.contributionProfit >= 0 ? "good" : "warn" },
     { label: "일평균 공헌이익", value: fmtKrw(avgProfit) },
     { label: "최고 이익일", value: bestDay ? `${bestDay.date} · ${fmtKrw(bestDay.contributionProfit)}` : "—" },
-    { label: "ROAS", value: fmtPct(totals.roas, 1) },
+    { label: "MER (전체 매출 ÷ 광고비)", value: fmtPct(totals.roas, 1) },
   ];
 
   return (
@@ -1323,14 +1323,12 @@ function InsightPanel({
     lines.push({ tone: "info", text: "공헌이익이 손익분기 부근." });
   }
 
+  // MER 은 광고 없이 나는 매출까지 포함 → 증액 판단 근거로 쓰지 않음. 판정은 채널 성과의 메타 귀속 ROAS 한 곳.
   if (totals.adSpend > 0 && totals.roas !== null) {
-    if (totals.adAdvice === "증액 가능") {
-      lines.push({ tone: "good", text: `ROAS ${fmtPct(totals.roas, 1)} > BEP ${fmtPct(totals.breakEvenRoas, 1)} — 광고 증액 여력.` });
-    } else {
-      lines.push({ tone: "warn", text: `ROAS ${fmtPct(totals.roas, 1)} ≤ BEP ${fmtPct(totals.breakEvenRoas, 1)} — 광고비 효율 점검 필요.` });
-    }
+    const above = totals.roas > totals.breakEvenRoas;
+    lines.push({ tone: above ? "good" : "warn", text: `MER ${fmtPct(totals.roas, 1)} ${above ? ">" : "≤"} 손익분기 ${fmtPct(totals.breakEvenRoas, 1)} — 회사 전체 기준. 광고 증감은 위 메타 광고 귀속 ROAS로 판단.` });
   } else if (totals.adSpend <= 0) {
-    lines.push({ tone: "info", text: "광고비 집행 없음 — ROAS 계산 불가." });
+    lines.push({ tone: "info", text: "광고비 집행 없음 — MER 계산 불가." });
   }
 
   if (bestDay && bestDay.contributionProfit > 0) {
@@ -1387,7 +1385,7 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
             <th className="py-2 pr-3 text-right font-medium">광고비</th>
             <th className="py-2 pr-3 text-right font-medium">공헌이익</th>
             <th className="py-2 pr-3 text-right font-medium">마진</th>
-            <th className="py-2 text-right font-medium">ROAS</th>
+            <th className="py-2 text-right font-medium">MER</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100 dark:divide-zinc-800">
@@ -1417,60 +1415,7 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
           })}
         </tbody>
       </table>
-      <p className="mt-3 text-[11px] text-gray-400 dark:text-zinc-500">※ 손익분기 ROAS 미만 행은 옅은 적색 배경 · 당일(미완료) 은 회색</p>
-    </div>
-  );
-}
-
-function RoasPill({ roas, bep, title }: { roas: number | null | undefined; bep: number; title: string }) {
-  return (
-    <span title={title} className={`w-14 shrink-0 rounded-full px-1.5 py-0.5 text-center text-[11px] font-medium tabular-nums sm:w-16 ${
-      roas == null ? "bg-gray-100 text-gray-400 dark:bg-zinc-800 dark:text-zinc-500"
-      : roas >= bep ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
-      : "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400"
-    }`}>
-      {fmtPct(roas ?? null, 0)}
-    </span>
-  );
-}
-
-function CampaignTop10({ campaigns, bep, attributedRoas }: {
-  campaigns: CampaignRow[]; bep: number; attributedRoas: Map<string, number | null> | null;
-}) {
-  if (campaigns.length === 0) {
-    return <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">광고 캠페인 데이터가 없습니다.</p>;
-  }
-  const top10 = [...campaigns].sort((a, b) => b.spend - a.spend).slice(0, 10);
-  const maxSpend = Math.max(...top10.map((c) => c.spend), 1);
-  const common = commonCampaignWords(top10.map((c) => c.campaignName));
-
-  return (
-    <div className="space-y-3">
-      {common.size > 0 && (
-        <p className="text-[11px] text-gray-400 dark:text-zinc-500">
-          공통 단어 생략 <span className="font-medium text-gray-500 dark:text-zinc-400">{Array.from(common).join("_")}</span>
-        </p>
-      )}
-      {top10.map((c) => {
-        const pct = (c.spend / maxSpend) * 100;
-        return (
-          <div key={c.campaignId} className="flex items-center gap-2 sm:gap-3">
-            <div className="min-w-0 flex-1 break-words break-keep text-xs text-gray-600 line-clamp-2 dark:text-zinc-300 sm:w-64 sm:flex-none" title={c.campaignName}>
-              {breakAtUnderscore(shortCampaignName(c.campaignName, common))}
-            </div>
-            <div className="hidden h-2 flex-1 rounded-full bg-gray-100 dark:bg-zinc-800 sm:block">
-              <div className="h-2 rounded-full bg-portone" style={{ width: `${pct}%` }} />
-            </div>
-            <div className="w-20 shrink-0 text-right text-xs tabular-nums text-gray-900 dark:text-zinc-100 sm:w-24">
-              {fmtKrw(c.spend)}
-            </div>
-            <RoasPill roas={c.roas} bep={bep} title="픽셀 ROAS (메타 광고관리자와 같은 값)" />
-            {attributedRoas && (
-              <RoasPill roas={attributedRoas.get(c.campaignId)} bep={bep} title="실결제 ROAS (토스 결제를 마지막 유입으로 귀속, 채널 성과 표와 같은 값)" />
-            )}
-          </div>
-        );
-      })}
+      <p className="mt-3 text-[11px] text-gray-400 dark:text-zinc-500">※ MER(전체 매출 ÷ 광고비)이 손익분기 미만인 행은 옅은 적색 배경 · 당일(미완료) 은 회색</p>
     </div>
   );
 }
@@ -1501,7 +1446,7 @@ function CampaignTable({
             <th className="py-2 pr-3 text-right font-medium">CPA</th>
             <th className="py-2 pr-3 text-right font-medium">예산</th>
             <th className="py-2 pr-3 text-right font-medium">지출금액</th>
-            <th className="py-2 pr-3 text-right font-medium">ROAS</th>
+            <th className="py-2 pr-3 text-right font-medium">픽셀 ROAS</th>
             <th className="py-2 pr-3 text-right font-medium">CTR</th>
             <th className="py-2 pr-3 text-right font-medium">빈도</th>
             <th className="py-2 pr-3 text-right font-medium">CVR</th>
