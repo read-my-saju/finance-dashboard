@@ -1272,7 +1272,7 @@ function PeriodSummaryCard({
     { label: "리포트 판매건수", value: avgCount === null ? `${NUM.format(totals.reportCount)}건` : `${NUM.format(totals.reportCount)}건 · 일평균 ${avgCount.toFixed(1)}건${avgNote}` },
     { label: "광고비", value: fmtKrw(totals.adSpend) },
     { label: "공헌이익", value: fmtKrw(totals.contributionProfit), tone: totals.contributionProfit >= 0 ? "good" : "warn" },
-    { label: `일평균 공헌이익${avgNote}`, value: avgProfit === null ? "— (오늘 진행 중)" : fmtKrw(avgProfit) },
+    { label: `일평균 공헌이익${avgNote}`, value: avgProfit !== null ? fmtKrw(avgProfit) : daily.some((d) => d.date === today) ? "— (오늘 진행 중)" : "—" },
     { label: "최고 이익일", value: bestDay ? `${bestDay.date} · ${fmtKrw(bestDay.contributionProfit)}` : "—" },
     { label: "MER (전체 매출 ÷ 광고비)", value: fmtPct(totals.roas, 1) },
   ];
