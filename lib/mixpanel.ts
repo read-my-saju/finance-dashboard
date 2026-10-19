@@ -94,7 +94,7 @@ export function onePerTx<T extends RawPurchase>(rows: T[]): T[] {
   return Array.from(byTx.values());
 }
 
-const fbclidOnly = (x: Touch) => x[5] === 1 && !x[1] && !x[3] && !x[6];
+const fbclidOnly = (x: Touch) => x[5] === 1 && !x[1] && !x[2] && !x[3] && !x[4] && !x[6];
 // 메타 광고 utm 방문인지 — 분류 규칙(lib/channel.ts)을 그대로 쓴다. 캠페인 목록 없이도 그룹은 정해짐.
 const isMetaUtm = (x: Touch) => Boolean(x[1] || x[3]) && classifyChannel({
   tx: "", user: "", ts: x[0], isNew: false, how: "touch",

@@ -210,6 +210,8 @@ const tManual: Touch = [0, "ig", "display", "pu_4Q_lo_pf_aut_vid_261012", null, 
 assert.equal(lastTouch([tPowerlink, tFb]), tFb, "fbclid 방문을 검색광고 utm 으로 넘기지 않음");
 assert.equal(lastTouch([tProfile, tFb]), tFb, "fbclid 방문을 프로필 링크 utm 으로 넘기지 않음");
 assert.equal(lastTouch([tManual, tPowerlink, tFb]), tManual, "수동 태그 메타 방문은 대상");
+const tFbSocial: Touch = [3, null, "social", null, null, 1, null];
+assert.equal(lastTouch([tUtm, tFbSocial]), tFbSocial, "fbclid 에 utm_medium 이 같이 있으면 fbclid 만 남은 방문이 아님");
 assert.equal(lastTouch([]), undefined);
 
 // 캠페인 이름 축약: 3Q·4Q 가 섞이고 _ 를 빠뜨린 이름이 있어도 공통 단어만 뺌

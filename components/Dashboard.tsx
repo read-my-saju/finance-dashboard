@@ -413,8 +413,10 @@ export default function Dashboard() {
   const metaError = summary?.metaError || daily?.metaError || campaigns?.metaError || null;
 
   // 캠페인별 실결제(귀속) ROAS — 채널 성과 표와 같은 값. 9/3 이전이 잘린 기간은 픽셀과 기간이 달라 표시 안 함,
-  // 기간을 바꿔 채널을 다시 받는 동안에도 이전 기간 값을 쓰지 않음.
-  const attributedRoas = channels?.cur && !channels.clampedFrom && !channelsLoading
+  // 기간을 바꾸는 중에 채널·캠페인 응답 중 하나만 새 기간이면(또는 한쪽이 실패해 이전 기간이면) 섞지 않음.
+  const sameRange = Boolean(channels && campaigns
+    && channels.range.from === campaigns.range.from && channels.range.until === campaigns.range.until);
+  const attributedRoas = channels?.cur && !channels.clampedFrom && sameRange
     ? new Map(channels.cur.groups[0].children.filter((c) => c.campaignId).map((c) => [c.campaignId!, c.roas]))
     : null;
   const top10Badge = attributedRoas ? "지출액 기준 · ROAS 픽셀 / 실결제"
