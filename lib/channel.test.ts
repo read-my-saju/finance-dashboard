@@ -54,6 +54,10 @@ assert.deepEqual(campaignRefs([
   { date: "2026-10-18", campaignId: "120300000000000001", campaignName: "b", spend: 1 },
   { date: "2026-10-01", campaignId: "120400000000000001", campaignName: "c", spend: 0 },
 ] as any).map((r) => r.name), ["b", "a", "c"], "같은 날이면 ID 큰 캠페인 먼저, 0원만 있으면 맨 뒤");
+assert.deepEqual(campaignRefs([
+  { date: "2026-10-18", campaignId: "9", campaignName: "nine", spend: 1 },
+  { date: "2026-10-18", campaignId: "10", campaignName: "ten", spend: 1 },
+] as any).map((r) => r.name), ["ten", "nine"], "ID 는 숫자 크기로 비교");
 assert.equal(classifyChannel({ ...base, src: "ig", camp: "pu_3Q_lo_rl_vid_bnr_290920" }, refs).campaignId, CAMPAIGNS[3].id);
 assert.equal(classifyChannel({ ...base, src: "ig", camp: "pu_4Q_lo_pf_aut_vid_261012" }, refs).campaignId, CAMPAIGNS[3].id);
 // 목록에 없는 캠페인 ID → 메타(캠페인 불명)

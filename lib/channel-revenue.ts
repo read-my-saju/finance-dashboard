@@ -117,7 +117,8 @@ export function campaignRefs(rows: MetaInsightRow[]): CampaignRef[] {
     latest.set(r.campaignId, cur);
   }
   return Array.from(latest.values())
-    .sort((a, b) => b.date.localeCompare(a.date) || b.ref.id.localeCompare(a.ref.id))
+    // ID 는 숫자 문자열 — 자릿수 먼저 비교해야 숫자 크기 순
+    .sort((a, b) => b.date.localeCompare(a.date) || b.ref.id.length - a.ref.id.length || b.ref.id.localeCompare(a.ref.id))
     .map((x) => x.ref);
 }
 
