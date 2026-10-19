@@ -440,7 +440,7 @@ function ChannelTable({ cur, mode, colors, focus }: { cur: ChannelPeriod; mode: 
                 className="w-4 text-[11px] text-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">{open[g] ? "▼" : "▶"}</button>
             ) : <span className="w-4" />)}
             {!kid && <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: colors[g] }} />}
-            <span className="max-w-[220px] break-words line-clamp-2" title={o.name}>{kid ? breakAtUnderscore(nameOf(o)) : o.name}</span>
+            <span className="max-w-[220px] whitespace-normal break-words line-clamp-2" title={o.name}>{kid ? breakAtUnderscore(nameOf(o)) : o.name}</span>
           </div>
         </td>
         <td className={TD}>

@@ -109,12 +109,16 @@ function summarize(key: string, name: string, items: Tagged[], rows: MetaInsight
  * 전체 기간을 보면 4월 '260424 연애운 랜딩페이지 수정' 이 지금 연애운 캠페인보다 먼저 잡혔다 (2026-10-19).
  */
 export function campaignRefs(rows: MetaInsightRow[]): CampaignRef[] {
+  // 최근 = 광고비를 쓴 마지막 날 (0원 행은 순서에 안 씀, 0원 행만 있는 캠페인은 맨 뒤). 같은 날이면 ID 큰(나중 만든) 캠페인 먼저.
   const latest = new Map<string, { ref: CampaignRef; date: string }>();
   for (const r of rows) {
-    const cur = latest.get(r.campaignId);
-    if (!cur || r.date > cur.date) latest.set(r.campaignId, { ref: { id: r.campaignId, name: r.campaignName }, date: r.date });
+    const cur = latest.get(r.campaignId) || { ref: { id: r.campaignId, name: r.campaignName }, date: "" };
+    if (r.spend > 0 && r.date > cur.date) cur.date = r.date;
+    latest.set(r.campaignId, cur);
   }
-  return Array.from(latest.values()).sort((a, b) => b.date.localeCompare(a.date)).map((x) => x.ref);
+  return Array.from(latest.values())
+    .sort((a, b) => b.date.localeCompare(a.date) || b.ref.id.localeCompare(a.ref.id))
+    .map((x) => x.ref);
 }
 
 /** 메타 ROAS 범위. 하한은 실제 결제로 확인한 귀속, 상한은 메타 주장(회사 전체 매출 MER 을 넘을 수 없음). */
