@@ -13,7 +13,7 @@
  *
  * 함정: JQL from_date/to_date 는 UTC 날짜다. KST 하루를 다 받으려고 앞뒤 하루씩 넓혀 받고 KST 로 자른다.
  */
-import type { PurchaseAttribution } from "./channel";
+import { classifyChannel, type PurchaseAttribution } from "./channel";
 
 const JQL_URL = "https://mixpanel.com/api/query/jql";
 const DAY_MS = 86_400_000;
@@ -68,7 +68,7 @@ type RawPurchase = {
   t: number; d: string; tx?: string;
   src?: string; med?: string; camp?: string; cont?: string; inf?: string;
 };
-type Touch = [number, string | null, string | null, string | null, string | null, 0 | 1, string | null];
+export type Touch = [number, string | null, string | null, string | null, string | null, 0 | 1, string | null];
 type TouchState = { touch: Touch[]; apps: Array<[number, "IG" | "FB" | "KAKAO" | "NAVER"]> };
 
 const PURCHASES_JQL = (from: string, to: string) => `function main(){
@@ -92,6 +92,24 @@ export function onePerTx<T extends RawPurchase>(rows: T[]): T[] {
     if (!cur || better(r, cur)) byTx.set(r.tx, r);
   }
   return Array.from(byTx.values());
+}
+
+const fbclidOnly = (x: Touch) => x[5] === 1 && !x[1] && !x[3] && !x[6];
+// 메타 광고 utm 방문인지 — 분류 규칙(lib/channel.ts)을 그대로 쓴다. 캠페인 목록 없이도 그룹은 정해짐.
+const isMetaUtm = (x: Touch) => Boolean(x[1] || x[3]) && classifyChannel({
+  tx: "", user: "", ts: x[0], isNew: false, how: "touch",
+  src: x[1] || undefined, med: x[2] || undefined, camp: x[3] || undefined, cont: x[4] || undefined,
+}, []).group === "meta";
+
+/**
+ * 시간순 방문 중 마지막 방문. 단 마지막이 fbclid 만 남은 방문이면 그 앞의 메타 utm 방문을 쓴다 —
+ * 랜딩(utm 있음) 뒤 앱(pouri.kr) 화면 이벤트는 fbclid 만 들고 있어 캠페인을 덮어쓰기 때문 (2026-10-18 확인).
+ * fbclid 는 메타 클릭 흔적이라 검색광고·프로필 링크 같은 다른 utm 방문으로는 넘기지 않는다.
+ */
+export function lastTouch(sorted: Touch[]): Touch | undefined {
+  const last = sorted[sorted.length - 1];
+  if (!last || !fbclidOnly(last)) return last;
+  return sorted.filter(isMetaUtm).pop() || last;
 }
 
 const userSet = (users: string[]) => JSON.stringify(Object.fromEntries(users.map((u) => [u, 1])));
@@ -150,7 +168,7 @@ export async function fetchPurchaseAttributions(from: string, until: string): Pr
     }
     const st = touches.get(r.d);
     const inWindow = (t: number) => t <= r.t && t >= r.t - LOOKBACK_DAYS * DAY_MS;
-    const last = st?.touch.filter((x) => inWindow(x[0])).sort((a, b) => a[0] - b[0]).pop();
+    const last = lastTouch((st?.touch || []).filter((x) => inWindow(x[0])).sort((a, b) => a[0] - b[0]));
     if (last) {
       return {
         ...base, how: "touch",

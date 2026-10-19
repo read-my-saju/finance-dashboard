@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BREAK_EVEN_ROAS_FALLBACK, calculateBreakEvenRoas, calculateRoas } from "@/lib/calc";
-import { commonCampaignPrefix } from "@/lib/campaign-name";
+import { commonCampaignWords, shortCampaignName } from "@/lib/campaign-name";
 import ChannelSection, { type ChannelsData } from "./ChannelSection";
 import {
   Bar,
@@ -412,6 +412,15 @@ export default function Dashboard() {
 
   const metaError = summary?.metaError || daily?.metaError || campaigns?.metaError || null;
 
+  // 캠페인별 실결제(귀속) ROAS — 채널 성과 표와 같은 값. 9/3 이전이 잘린 기간은 픽셀과 기간이 달라 표시 안 함,
+  // 기간을 바꿔 채널을 다시 받는 동안에도 이전 기간 값을 쓰지 않음.
+  const attributedRoas = channels?.cur && !channels.clampedFrom && !channelsLoading
+    ? new Map(channels.cur.groups[0].children.filter((c) => c.campaignId).map((c) => [c.campaignId!, c.roas]))
+    : null;
+  const top10Badge = attributedRoas ? "지출액 기준 · ROAS 픽셀 / 실결제"
+    : !channelsLoading && channels?.clampedFrom ? `지출액 기준 · ROAS 픽셀 기준 (실결제는 ${channels.clampedFrom} 이후 기간만)`
+    : "지출액 기준 · ROAS 픽셀 기준";
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
       <Header
@@ -518,8 +527,8 @@ export default function Dashboard() {
       {/* ── 4. 하단 상세 (접기 가능) ────────────────────────────────────── */}
       <div className="mt-8 space-y-4">
         <Card>
-          <CardHeader title="캠페인 TOP 10" badge="지출액 기준 · ROAS 픽셀 기준" />
-          <CampaignTop10 campaigns={campaigns?.campaigns ?? []} bep={summary?.totals.breakEvenRoas ?? BREAK_EVEN_ROAS_FALLBACK} />
+          <CardHeader title="캠페인 TOP 10" badge={top10Badge} />
+          <CampaignTop10 campaigns={campaigns?.campaigns ?? []} bep={summary?.totals.breakEvenRoas ?? BREAK_EVEN_ROAS_FALLBACK} attributedRoas={attributedRoas} />
         </Card>
 
         <CollapsibleCard title="일별 손익 표" defaultOpen={false}>
@@ -1411,43 +1420,52 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
   );
 }
 
-function CampaignTop10({ campaigns, bep }: { campaigns: CampaignRow[]; bep: number }) {
+function RoasPill({ roas, bep, title }: { roas: number | null | undefined; bep: number; title: string }) {
+  return (
+    <span title={title} className={`w-14 shrink-0 rounded-full px-1.5 py-0.5 text-center text-[11px] font-medium tabular-nums sm:w-16 ${
+      roas == null ? "bg-gray-100 text-gray-400 dark:bg-zinc-800 dark:text-zinc-500"
+      : roas >= bep ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+      : "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400"
+    }`}>
+      {fmtPct(roas ?? null, 0)}
+    </span>
+  );
+}
+
+function CampaignTop10({ campaigns, bep, attributedRoas }: {
+  campaigns: CampaignRow[]; bep: number; attributedRoas: Map<string, number | null> | null;
+}) {
   if (campaigns.length === 0) {
     return <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">광고 캠페인 데이터가 없습니다.</p>;
   }
   const top10 = [...campaigns].sort((a, b) => b.spend - a.spend).slice(0, 10);
   const maxSpend = Math.max(...top10.map((c) => c.spend), 1);
-  const prefix = commonCampaignPrefix(top10.map((c) => c.campaignName));
+  const common = commonCampaignWords(top10.map((c) => c.campaignName));
 
   return (
     <div className="space-y-3">
-      {prefix && (
+      {common.size > 0 && (
         <p className="text-[11px] text-gray-400 dark:text-zinc-500">
-          공통 접두어 <span className="font-medium text-gray-500 dark:text-zinc-400">{prefix}</span>
+          공통 단어 생략 <span className="font-medium text-gray-500 dark:text-zinc-400">{Array.from(common).join("_")}</span>
         </p>
       )}
       {top10.map((c) => {
         const pct = (c.spend / maxSpend) * 100;
-        const aboveBep = c.roas !== null && c.roas >= bep;
-        const shortName = prefix ? (c.campaignName.slice(prefix.length) || "(기본)") : c.campaignName;
         return (
-          <div key={c.campaignId} className="flex items-center gap-3">
-            <div className="w-32 shrink-0 truncate text-xs text-gray-600 dark:text-zinc-300 sm:w-44" title={c.campaignName}>
-              {shortName}
+          <div key={c.campaignId} className="flex items-center gap-2 sm:gap-3">
+            <div className="min-w-0 flex-1 truncate text-xs text-gray-600 dark:text-zinc-300 sm:w-44 sm:flex-none" title={c.campaignName}>
+              {shortCampaignName(c.campaignName, common)}
             </div>
-            <div className="h-2 flex-1 rounded-full bg-gray-100 dark:bg-zinc-800">
+            <div className="hidden h-2 flex-1 rounded-full bg-gray-100 dark:bg-zinc-800 sm:block">
               <div className="h-2 rounded-full bg-portone" style={{ width: `${pct}%` }} />
             </div>
-            <div className="w-24 shrink-0 text-right text-xs tabular-nums text-gray-900 dark:text-zinc-100">
+            <div className="w-20 shrink-0 text-right text-xs tabular-nums text-gray-900 dark:text-zinc-100 sm:w-24">
               {fmtKrw(c.spend)}
             </div>
-            <span className={`w-16 shrink-0 rounded-full px-1.5 py-0.5 text-center text-[11px] font-medium tabular-nums ${
-              c.roas === null ? "bg-gray-100 text-gray-400 dark:bg-zinc-800 dark:text-zinc-500"
-              : aboveBep ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
-              : "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400"
-            }`}>
-              {fmtPct(c.roas, 0)}
-            </span>
+            <RoasPill roas={c.roas} bep={bep} title="픽셀 ROAS (메타 광고관리자와 같은 값)" />
+            {attributedRoas && (
+              <RoasPill roas={attributedRoas.get(c.campaignId)} bep={bep} title="실결제 ROAS (토스 결제를 마지막 유입으로 귀속, 채널 성과 표와 같은 값)" />
+            )}
           </div>
         );
       })}

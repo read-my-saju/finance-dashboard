@@ -12,7 +12,7 @@
  * 채널 색은 dataviz 범주색 1~5번 + 회색(미귀속), 라이트·다크 각각 색각 검증 통과(2026-10-10).
  */
 import { useMemo, useState } from "react";
-import { commonCampaignPrefix } from "@/lib/campaign-name";
+import { commonCampaignWords, shortCampaignName } from "@/lib/campaign-name";
 import type { ChannelGroup } from "@/lib/channel";
 import type { ChannelDaily, ChannelGroupRow, ChannelPeriod, ChannelRow } from "@/lib/channel-revenue";
 
@@ -126,8 +126,8 @@ function Seg<T extends string>({ value, options, onChange, label }: { value: T; 
 }
 
 function useShortNames(rows: ChannelRow[]) {
-  const prefix = useMemo(() => commonCampaignPrefix(rows.filter((r) => r.campaignId).map((r) => r.name)), [rows]);
-  return (name: string) => (prefix && name.startsWith(prefix) ? name.slice(prefix.length).replace(/^[_\-\s]+/, "") || name : name);
+  const common = useMemo(() => commonCampaignWords(rows.filter((r) => r.campaignId).map((r) => r.name)), [rows]);
+  return (name: string) => shortCampaignName(name, common);
 }
 
 // ── ① 히어로 ──────────────────────────────────────────────────────────────

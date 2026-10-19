@@ -1,26 +1,19 @@
-/** 캠페인 표(TOP10·채널 성과)에서 긴 캠페인 이름의 공통 접두어를 떼어 보여주기 위한 도우미. */
+/** 캠페인 표(TOP10·채널 성과)에서 긴 캠페인 이름의 공통 단어를 떼어 보여주기 위한 도우미. */
 
-// 캠페인 이름들의 최장 공통 접두어를 단어 경계(_ - 공백)에서 끊어 반환.
-// 캠페인 1개거나 구분자를 포함한 공통 접두어가 없으면 "" (축약 안 함).
-export function commonCampaignPrefix(names: string[]): string {
-  if (names.length < 2) return "";
-  const isSep = (ch: string) => ch === "_" || ch === "-" || ch === " ";
-  let lcp = names[0];
-  for (let i = 1; i < names.length; i++) {
-    const n = names[i];
-    let k = 0;
-    while (k < lcp.length && k < n.length && lcp[k] === n[k]) k++;
-    lcp = lcp.slice(0, k);
-    if (!lcp) break;
-  }
-  // LCP가 어떤 이름에서 단어 중간(다음 문자가 구분자도 문자열 끝도 아님)에서 끊겼으면,
-  // 마지막 구분자 앞까지 줄여 단어 경계를 맞춘다.
-  const cleanBoundary = names.every((n) => n.length === lcp.length || isSep(n[lcp.length]));
-  if (!cleanBoundary) {
-    let end = lcp.length;
-    while (end > 0 && !isSep(lcp[end - 1])) end--; // 마지막 구분자 다음 위치
-    lcp = lcp.slice(0, Math.max(end - 1, 0)); // 구분자 자체 제외
-  }
-  while (lcp.length && isSep(lcp[lcp.length - 1])) lcp = lcp.slice(0, -1); // 끝 구분자 정리
-  return /[_\-\s]/.test(lcp) ? lcp : ""; // 구분자 없는 짧은 접두어는 축약 이득 없음
+// 단어 경계: _ - 공백, 그리고 영문↔한글이 붙은 곳 ("rebranding판매" 처럼 _ 를 빠뜨린 이름).
+const words = (name: string): string[] =>
+  name.replace(/([A-Za-z])(?=[가-힣])|([가-힣])(?=[A-Za-z])/g, "$1$2_").split(/[_\-\s]+/).filter(Boolean);
+
+// 모든 이름에 들어 있는 단어. 접두어가 아니어도 된다 — 26_3Q_… 와 26_4Q_… 가 섞이면 공통 접두어는 "26" 뿐이라 축약이 안 됨.
+// 캠페인 1개면 빈 집합 (축약 안 함).
+export function commonCampaignWords(names: string[]): Set<string> {
+  if (names.length < 2) return new Set();
+  const [first, ...rest] = names.map((n) => new Set(words(n)));
+  return new Set(Array.from(first).filter((w) => rest.every((s) => s.has(w))));
+}
+
+// 공통 단어를 뺀 이름. 남는 게 없으면 원래 이름.
+export function shortCampaignName(name: string, common: Set<string>): string {
+  if (common.size === 0) return name;
+  return words(name).filter((w) => !common.has(w)).join("_") || name;
 }
