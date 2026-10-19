@@ -321,9 +321,9 @@ function monthLabel(month: string): string {
 // ────────────────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  // 기본 = 최근 7일 (광고 판정 기간과 같게. 전체 기간은 채널 성과가 9/3부터라 기간이 어긋남)
-  const [from, setFrom] = useState<string>(() => daysAgo(6));
-  const [until, setUntil] = useState<string>(() => todayStr());
+  // 기본 = 최근 7일 (광고 판정 기간과 같게. 전체 기간은 채널 성과가 9/3부터라 기간이 어긋남). 두 날짜는 같은 '오늘'에서.
+  const [until, setUntil] = useState<string>(todayStr);
+  const [from, setFrom] = useState<string>(() => addDays(until, -6));
   const [payments, setPayments] = useState<PaymentsData | null>(null);
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [daily, setDaily] = useState<DailyData | null>(null);
@@ -937,12 +937,11 @@ function DailyProfitChart({ rows, pal }: { rows: DailyRow[]; pal: ChartPalette }
         { color: pal.barRevenue, label: "순매출" },
         { color: pal.barAd, label: "광고비" },
         { color: pal.profit, label: "공헌이익", line: true },
+        ...(!monthly && current ? [{ color: pal.today, label: "당일 공헌이익(미완료)", line: true, dashed: true }] : []),
       ]} />
-      {monthly ? (
+      {monthly && (
         <p className="mt-2 text-[11px] text-gray-400 dark:text-zinc-500">※ 62일 초과 기간은 월 단위 합계로 표시 — 시작·끝 달은 부분 데이터일 수 있음</p>
-      ) : current ? (
-        <p className="mt-2 text-[11px] text-gray-400 dark:text-zinc-500">※ 회색 점선은 당일(미완료) 데이터</p>
-      ) : null}
+      )}
     </div>
   );
 }
