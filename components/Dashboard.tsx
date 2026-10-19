@@ -1512,7 +1512,7 @@ function CampaignTable({
           {campaigns.map((c) => (
             <tr key={c.campaignId} className="text-gray-700 dark:text-zinc-300">
               <td className="py-2 pr-4">
-                <div className="truncate max-w-[260px]" title={c.campaignName}>{c.campaignName}</div>
+                <div className="max-w-[260px] break-words line-clamp-2" title={c.campaignName}>{breakAtUnderscore(c.campaignName)}</div>
                 <div className="text-[10px] text-gray-400 dark:text-zinc-500">{c.campaignId}</div>
               </td>
               <td className="py-2 pr-3 text-right tabular-nums">
