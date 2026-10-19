@@ -7,7 +7,7 @@
  *   3. 인앱 브라우저 흔적
  *   4. 미귀속
  *
- * 메타 캠페인은 utm_campaign 의 캠페인 ID 로 잇고, 수동 태그(pu_3Q_*)는 캠페인 이름의 키워드로 찾는다.
+ * 메타 캠페인은 utm_campaign 의 캠페인 ID 로 잇고, 수동 태그(pu_3Q_*·pu_4Q_*)는 캠페인 이름의 키워드로 찾는다.
  * 캠페인 이름·ID 를 하드코딩하지 않는다 — Meta insights 에서 받은 목록을 넘겨받음.
  */
 
@@ -52,8 +52,9 @@ export type ChannelResult = {
 // 수동 UTM 태그 → 캠페인 이름 키워드. 메타 광고 URL 을 {{campaign.id}} 로 통일하면 필요 없어짐.
 const MANUAL_TAG_KEYWORD: Array<[RegExp, string]> = [
   [/^pu_3Q_job|^pu_3Q_sun_new_mg/i, "취업운"],
-  [/^pu_3Q_lo/i, "연애운"],
+  [/^pu_[34]Q_lo/i, "연애운"],
   [/^pu_[34]Q_sun/i, "수능운"],
+  [/^pu_4Q_ny/i, "신년운"],
 ];
 
 const OWNED_SOURCE: Record<string, string> = { ig: "인스타 프로필", kakao: "카카오 채널", meta: "페이스북 프로필", fb: "페이스북 프로필" };

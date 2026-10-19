@@ -9,7 +9,8 @@
 import assert from "node:assert/strict";
 import { classifyChannel, type CampaignRef, type PurchaseAttribution } from "./channel";
 import { buildChannelPeriod, metaRoasRange } from "./channel-revenue";
-import { onePerTx } from "./mixpanel";
+import { lastTouch, onePerTx, type Touch } from "./mixpanel";
+import { commonCampaignWords, shortCampaignName } from "./campaign-name";
 import { buildRecords, daysBetween, isFinal, planFetch, splitByDay, type DayRecord } from "./mixpanel-store";
 
 const CAMPAIGNS: CampaignRef[] = [
@@ -18,6 +19,7 @@ const CAMPAIGNS: CampaignRef[] = [
   { id: "120253113163140722", name: "26_3Q_sales_rebranding_판매_취업운_7.27" },
   { id: "120253113163290722", name: "26_3Q_sales_rebranding_판매_연애운" },
   { id: "120253498816350722", name: "26_3Q_sales_rebranding_판매_수능운" },
+  { id: "120254000000000722", name: "26_4Q_sales_rebranding판매_신년운" },
 ];
 
 const base: PurchaseAttribution = { tx: "t", user: "u", ts: 0, isNew: true, how: "utm" };
@@ -34,6 +36,9 @@ assert.equal(c({ src: "meta", med: "display", camp: "pu_3Q_sun_new_mg_vid_bnr_26
 assert.equal(c({ src: "meta", med: "display", camp: "pu_3Q_job_new_h2_recruit_bnr_260821" }).campaignId, CAMPAIGNS[2].id);
 assert.equal(c({ src: "ig", med: "display", camp: "pu_3Q_lo_rl_vid_bnr_290920" }).campaignId, CAMPAIGNS[3].id);
 assert.equal(c({ src: "meta", med: "display", camp: "pu_4Q_sun_new_sur_in_carousel_260929" }).campaignId, CAMPAIGNS[4].id);
+// 4분기 새 소재 태그 (2026-10-19 Mixpanel 실측: 연애 pu_4Q_lo_*, 신년 pu_4Q_ny_*)
+assert.equal(c({ src: "ig", med: "display", camp: "pu_4Q_lo_pf_aut_vid_261012" }).campaignId, CAMPAIGNS[3].id);
+assert.equal(c({ src: "ig", med: "display", camp: "pu_4Q_ny_la_lei_vid_261016" }).campaignId, CAMPAIGNS[5].id);
 // 키워드 캠페인이 목록에 없으면 키워드 이름으로 메타에 남김
 assert.deepEqual(classifyChannel({ ...base, src: "ig", camp: "pu_3Q_lo_x" }, []), { group: "meta", detail: "연애운" });
 // 목록에 없는 캠페인 ID → 메타(캠페인 불명)
@@ -190,5 +195,32 @@ assert.deepEqual(metaRoasRange(150, 90, 180), { low: 150, high: 150 });         
 assert.deepEqual(metaRoasRange(150, 190, 170), { low: 150, high: 170 });           // 메타 주장이 회사 전체 매출 초과
 assert.deepEqual(metaRoasRange(140, null, 160), { low: 140, high: 140 });
 assert.deepEqual(metaRoasRange(null, 150, null), { low: null, high: null });        // 광고비 0
+
+// 접점 복원: 랜딩(utm) 뒤 앱 화면의 fbclid 만 남은 방문이 캠페인을 덮어쓰지 않음
+const tUtm: Touch = [1, "ig", "paid", CAMPAIGNS[0].id, null, 1, null];
+const tFb: Touch = [3, null, null, null, null, 1, null];
+const tRef: Touch = [2, null, null, null, null, 0, "m.blog.naver.com"];
+assert.equal(lastTouch([tUtm, tFb]), tUtm, "fbclid 만 남은 마지막 방문 → 앞의 utm 방문");
+assert.equal(lastTouch([tUtm, tRef, tFb]), tUtm, "fbclid 방문은 메타 클릭 → 사이의 referrer 보다 utm 방문");
+assert.equal(lastTouch([tUtm, tRef]), tRef, "referrer 방문은 그대로 마지막 유입");
+assert.equal(lastTouch([tFb]), tFb, "utm 방문이 없으면 fbclid 방문 그대로 (캠페인 불명)");
+const tPowerlink: Touch = [1, "naver", "cpc", "pu_powerlink_brand__text_260827", null, 0, null];
+const tProfile: Touch = [1, "ig", "social", null, "link_in_bio", 0, null];
+const tManual: Touch = [0, "ig", "display", "pu_4Q_lo_pf_aut_vid_261012", null, 0, null];
+assert.equal(lastTouch([tPowerlink, tFb]), tFb, "fbclid 방문을 검색광고 utm 으로 넘기지 않음");
+assert.equal(lastTouch([tProfile, tFb]), tFb, "fbclid 방문을 프로필 링크 utm 으로 넘기지 않음");
+assert.equal(lastTouch([tManual, tPowerlink, tFb]), tManual, "수동 태그 메타 방문은 대상");
+const tFbSocial: Touch = [3, null, "social", null, null, 1, null];
+assert.equal(lastTouch([tUtm, tFbSocial]), tFbSocial, "fbclid 에 utm_medium 이 같이 있으면 fbclid 만 남은 방문이 아님");
+assert.equal(lastTouch([]), undefined);
+
+// 캠페인 이름 축약: 3Q·4Q 가 섞이고 _ 를 빠뜨린 이름이 있어도 공통 단어만 뺌
+const names = [CAMPAIGNS[0].name, CAMPAIGNS[1].name, CAMPAIGNS[2].name, CAMPAIGNS[3].name, CAMPAIGNS[5].name];
+const common = commonCampaignWords(names);
+assert.deepEqual(names.map((n) => shortCampaignName(n, common)),
+  ["3Q_성공운", "3Q_리무진테스트_260814", "3Q_취업운_7.27", "3Q_연애운", "4Q_신년운"]);
+assert.equal(commonCampaignWords([CAMPAIGNS[0].name]).size, 0, "캠페인 1개면 축약 안 함");
+assert.equal(shortCampaignName("26_4Q-sales rebranding판매", new Set()), "26_4Q-sales rebranding판매", "공통 단어 없으면 원래 이름 그대로");
+assert.equal(shortCampaignName("a_b", new Set(["a", "b"])), "a_b", "남는 단어가 없으면 원래 이름");
 
 console.log("channel.test OK");
