@@ -12,6 +12,9 @@ export function commonCampaignWords(names: string[]): Set<string> {
   return new Set(Array.from(first).filter((w) => rest.every((s) => s.has(w))));
 }
 
+// 화면 표시용: _ 뒤에서만 줄이 바뀌게 (긴 이름을 두 줄로 보여줄 때 숫자 중간에서 끊기지 않게).
+export const breakAtUnderscore = (name: string): string => name.replace(/_/g, "_​");
+
 // 공통 단어를 뺀 이름. 남는 게 없으면 원래 이름.
 export function shortCampaignName(name: string, common: Set<string>): string {
   if (common.size === 0) return name;

@@ -8,7 +8,7 @@
  */
 import assert from "node:assert/strict";
 import { classifyChannel, type CampaignRef, type PurchaseAttribution } from "./channel";
-import { buildChannelPeriod, metaRoasRange } from "./channel-revenue";
+import { buildChannelPeriod, campaignRefs, metaRoasRange } from "./channel-revenue";
 import { lastTouch, onePerTx, type Touch } from "./mixpanel";
 import { commonCampaignWords, shortCampaignName } from "./campaign-name";
 import { buildRecords, daysBetween, isFinal, planFetch, splitByDay, type DayRecord } from "./mixpanel-store";
@@ -41,6 +41,15 @@ assert.equal(c({ src: "ig", med: "display", camp: "pu_4Q_lo_pf_aut_vid_261012" }
 assert.equal(c({ src: "ig", med: "display", camp: "pu_4Q_ny_la_lei_vid_261016" }).campaignId, CAMPAIGNS[5].id);
 // 키워드 캠페인이 목록에 없으면 키워드 이름으로 메타에 남김
 assert.deepEqual(classifyChannel({ ...base, src: "ig", camp: "pu_3Q_lo_x" }, []), { group: "meta", detail: "연애운" });
+// 키워드 매칭은 최근 집행 캠페인으로 — 전체 기간이면 4월 옛 연애운 캠페인이 같이 들어옴 (2026-10-19 운영 화면)
+const refs = campaignRefs([
+  { date: "2026-04-24", campaignId: "old", campaignName: "260424 연애운 랜딩페이지 수정" },
+  { date: "2026-10-18", campaignId: CAMPAIGNS[3].id, campaignName: CAMPAIGNS[3].name },
+  { date: "2026-04-30", campaignId: "old", campaignName: "260424 연애운 랜딩페이지 수정" },
+] as any);
+assert.deepEqual(refs.map((r) => r.id), [CAMPAIGNS[3].id, "old"], "최근 집행 순, 캠페인당 1개");
+assert.equal(classifyChannel({ ...base, src: "ig", camp: "pu_3Q_lo_rl_vid_bnr_290920" }, refs).campaignId, CAMPAIGNS[3].id);
+assert.equal(classifyChannel({ ...base, src: "ig", camp: "pu_4Q_lo_pf_aut_vid_261012" }, refs).campaignId, CAMPAIGNS[3].id);
 // 목록에 없는 캠페인 ID → 메타(캠페인 불명)
 assert.deepEqual(c({ src: "ig", med: "paid", camp: "120299999999999999" }), { group: "meta", detail: "캠페인 불명" });
 

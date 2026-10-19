@@ -12,7 +12,7 @@
  * 채널 색은 dataviz 범주색 1~5번 + 회색(미귀속), 라이트·다크 각각 색각 검증 통과(2026-10-10).
  */
 import { useMemo, useState } from "react";
-import { commonCampaignWords, shortCampaignName } from "@/lib/campaign-name";
+import { breakAtUnderscore, commonCampaignWords, shortCampaignName } from "@/lib/campaign-name";
 import type { ChannelGroup } from "@/lib/channel";
 import type { ChannelDaily, ChannelGroupRow, ChannelPeriod, ChannelRow } from "@/lib/channel-revenue";
 
@@ -440,7 +440,7 @@ function ChannelTable({ cur, mode, colors, focus }: { cur: ChannelPeriod; mode: 
                 className="w-4 text-[11px] text-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">{open[g] ? "▼" : "▶"}</button>
             ) : <span className="w-4" />)}
             {!kid && <span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: colors[g] }} />}
-            <span className="max-w-[220px] truncate" title={o.name}>{kid ? nameOf(o) : o.name}</span>
+            <span className="max-w-[220px] break-words line-clamp-2" title={o.name}>{kid ? breakAtUnderscore(nameOf(o)) : o.name}</span>
           </div>
         </td>
         <td className={TD}>
@@ -506,7 +506,7 @@ function ChannelTable({ cur, mode, colors, focus }: { cur: ChannelPeriod; mode: 
                 <div className="grid gap-1.5 border-t border-gray-100 pt-2 text-xs dark:border-zinc-800">
                   {g.children.map((c) => (
                     <div key={c.key} className="flex justify-between gap-2 tabular-nums text-gray-600 dark:text-zinc-400">
-                      <span className="truncate">{nameOf(c)}</span>
+                      <span className="break-words line-clamp-2">{breakAtUnderscore(nameOf(c))}</span>
                       <span className="shrink-0">{man(revOf(c, mode))}{c.spend > 0 ? ` · ROAS ${pct(roasOf(c, mode), 0)}` : ""}</span>
                     </div>
                   ))}

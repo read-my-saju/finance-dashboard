@@ -19,8 +19,7 @@ import { loadIncrementalRows } from "./meta-store";
 import { computeProfit, type ProfitSummary } from "./profit";
 import { MixpanelConfigError } from "./mixpanel";
 import { loadStoredAttributions } from "./mixpanel-store";
-import { buildChannelPeriod, type ChannelPeriod } from "./channel-revenue";
-import type { CampaignRef } from "./channel";
+import { buildChannelPeriod, campaignRefs, type ChannelPeriod } from "./channel-revenue";
 
 const TTL_MS = 5 * 60 * 1000;
 
@@ -249,9 +248,7 @@ export async function loadChannelRevenue(opts: LoadOptions): Promise<{
   }
   const byTx = new Map(stored.rows.map((a) => [a.tx, a]));
   const metaRowsAll = [...(prevRaw?.metaRows ?? []), ...curRaw.metaRows];
-  const campaigns: CampaignRef[] = Array.from(
-    new Map(metaRowsAll.map((r) => [r.campaignId, { id: r.campaignId, name: r.campaignName }])).values(),
-  );
+  const campaigns = campaignRefs(metaRowsAll);
   const build = (raw: CacheEntry, r: { from: string; until: string }) =>
     buildChannelPeriod({
       payments: raw.payments.filter((p) => paymentDate(p) >= r.from),
