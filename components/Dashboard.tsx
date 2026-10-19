@@ -1123,7 +1123,9 @@ function RoasChart({ rows, pal }: { rows: DailyRow[]; pal: ChartPalette }) {
         }));
 
   if (data.length === 0) {
-    return <p className="py-12 text-center text-sm text-gray-400 dark:text-zinc-500">광고비 집행 일자가 없습니다.</p>;
+    // 오늘만 고른 경우: 오늘은 미완료라 제외 → '집행 없음'이 아니라 진행 중
+    const todayOnly = rows.some((r) => r.date === today && r.adSpend > 0);
+    return <p className="py-12 text-center text-sm text-gray-400 dark:text-zinc-500">{todayOnly ? "오늘은 진행 중이라 하루가 끝나면 표시돼요." : "광고비 집행 일자가 없습니다."}</p>;
   }
 
   return (
