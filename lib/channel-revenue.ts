@@ -104,6 +104,24 @@ function summarize(key: string, name: string, items: Tagged[], rows: MetaInsight
   };
 }
 
+/**
+ * 메타 행에서 캠페인 목록 — 최근에 집행한 캠페인이 앞. 수동 태그는 이름 키워드로 목록 앞쪽 캠페인을 고르므로,
+ * 전체 기간을 보면 4월 '260424 연애운 랜딩페이지 수정' 이 지금 연애운 캠페인보다 먼저 잡혔다 (2026-10-19).
+ */
+export function campaignRefs(rows: MetaInsightRow[]): CampaignRef[] {
+  // 최근 = 광고비를 쓴 마지막 날 (0원 행은 순서에 안 씀, 0원 행만 있는 캠페인은 맨 뒤). 같은 날이면 ID 큰(나중 만든) 캠페인 먼저.
+  const latest = new Map<string, { ref: CampaignRef; date: string }>();
+  for (const r of rows) {
+    const cur = latest.get(r.campaignId) || { ref: { id: r.campaignId, name: r.campaignName }, date: "" };
+    if (r.spend > 0 && r.date > cur.date) cur.date = r.date;
+    latest.set(r.campaignId, cur);
+  }
+  return Array.from(latest.values())
+    // ID 는 숫자 문자열 — 자릿수 먼저 비교해야 숫자 크기 순
+    .sort((a, b) => b.date.localeCompare(a.date) || b.ref.id.length - a.ref.id.length || b.ref.id.localeCompare(a.ref.id))
+    .map((x) => x.ref);
+}
+
 /** 메타 ROAS 범위. 하한은 실제 결제로 확인한 귀속, 상한은 메타 주장(회사 전체 매출 MER 을 넘을 수 없음). */
 export function metaRoasRange(attributed: number | null, pixel: number | null, mer: number | null): { low: number | null; high: number | null } {
   if (attributed == null) return { low: null, high: null };

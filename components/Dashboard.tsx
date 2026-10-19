@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BREAK_EVEN_ROAS_FALLBACK, calculateBreakEvenRoas, calculateRoas } from "@/lib/calc";
-import { commonCampaignWords, shortCampaignName } from "@/lib/campaign-name";
+import { breakAtUnderscore, commonCampaignWords, shortCampaignName } from "@/lib/campaign-name";
 import ChannelSection, { type ChannelsData } from "./ChannelSection";
 import {
   Bar,
@@ -1455,8 +1455,8 @@ function CampaignTop10({ campaigns, bep, attributedRoas }: {
         const pct = (c.spend / maxSpend) * 100;
         return (
           <div key={c.campaignId} className="flex items-center gap-2 sm:gap-3">
-            <div className="min-w-0 flex-1 truncate text-xs text-gray-600 dark:text-zinc-300 sm:w-44 sm:flex-none" title={c.campaignName}>
-              {shortCampaignName(c.campaignName, common)}
+            <div className="min-w-0 flex-1 break-words text-xs text-gray-600 line-clamp-2 dark:text-zinc-300 sm:w-64 sm:flex-none" title={c.campaignName}>
+              {breakAtUnderscore(shortCampaignName(c.campaignName, common))}
             </div>
             <div className="hidden h-2 flex-1 rounded-full bg-gray-100 dark:bg-zinc-800 sm:block">
               <div className="h-2 rounded-full bg-portone" style={{ width: `${pct}%` }} />
@@ -1512,7 +1512,7 @@ function CampaignTable({
           {campaigns.map((c) => (
             <tr key={c.campaignId} className="text-gray-700 dark:text-zinc-300">
               <td className="py-2 pr-4">
-                <div className="truncate max-w-[260px]" title={c.campaignName}>{c.campaignName}</div>
+                <div className="max-w-[260px] break-words line-clamp-2" title={c.campaignName}>{breakAtUnderscore(c.campaignName)}</div>
                 <div className="text-[10px] text-gray-400 dark:text-zinc-500">{c.campaignId}</div>
               </td>
               <td className="py-2 pr-3 text-right tabular-nums">
