@@ -1261,7 +1261,7 @@ function PeriodSummaryCard({
   const avgCount = finished.length > 0
     ? finished.reduce((a, d) => a + d.reportCount, 0) / finished.length
     : null;
-  const avgNote = finished.length < daily.length ? ` (완료 ${finished.length}일)` : "";
+  const avgNote = finished.length > 0 && finished.length < daily.length ? ` (완료 ${finished.length}일)` : "";
   const bestDay = finished.length > 0
     ? finished.reduce((m, d) => (d.contributionProfit > m.contributionProfit ? d : m), finished[0])
     : null;
