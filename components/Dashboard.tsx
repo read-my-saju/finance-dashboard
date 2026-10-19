@@ -240,14 +240,12 @@ function ChartLegend({ items }: { items: Array<{ color: string; label: string; l
 
 const NUM = new Intl.NumberFormat("ko-KR");
 
+// 오늘 = KST 날짜 (API 의 from/until 이 KST 라 서버(UTC)·브라우저 시간대와 무관하게 맞춤. ChannelSection kstToday 와 같은 식)
 function todayStr(): string {
-  const d = new Date();
-  return ymd(d);
+  return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 }
 function daysAgo(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return ymd(d);
+  return addDays(todayStr(), -n);
 }
 function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
