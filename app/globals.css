@@ -19,6 +19,13 @@ html.dark ::-webkit-scrollbar-thumb {
   background: #3f3f46;
 }
 
+/* 모바일(sm 미만)에선 막대 위 값 라벨이 서로 겹침 → 숨김. 값은 툴팁·월별 표로 */
+@media (max-width: 639px) {
+  .recharts-label-list {
+    display: none;
+  }
+}
+
 /* 다크모드에서 date input 의 브라우저 기본 아이콘/텍스트 색 보정 */
 html.dark input[type="date"] {
   color-scheme: dark;
