@@ -1254,12 +1254,14 @@ function PeriodSummaryCard({
   }
   const today = todayStr();
   const finished = daily.filter((d) => d.date < today);
+  // 평균은 끝난 날만(오늘은 미완료). 끝난 날이 없으면(오늘만 선택) 평균 대신 '—'.
   const avgProfit = finished.length > 0
     ? finished.reduce((a, d) => a + d.contributionProfit, 0) / finished.length
-    : 0;
+    : null;
   const avgCount = finished.length > 0
     ? finished.reduce((a, d) => a + d.reportCount, 0) / finished.length
-    : 0;
+    : null;
+  const avgNote = finished.length < daily.length ? ` (완료 ${finished.length}일)` : "";
   const bestDay = finished.length > 0
     ? finished.reduce((m, d) => (d.contributionProfit > m.contributionProfit ? d : m), finished[0])
     : null;
@@ -1267,10 +1269,10 @@ function PeriodSummaryCard({
   const rows: Array<{ label: string; value: string; tone?: "good" | "warn" }> = [
     { label: "기간", value: `${daily.length}일` },
     { label: "결제매출", value: fmtKrw(sourceNetRevenue) },
-    { label: "리포트 판매건수", value: `${NUM.format(totals.reportCount)}건 · 일평균 ${avgCount.toFixed(1)}건` },
+    { label: "리포트 판매건수", value: avgCount === null ? `${NUM.format(totals.reportCount)}건` : `${NUM.format(totals.reportCount)}건 · 일평균 ${avgCount.toFixed(1)}건${avgNote}` },
     { label: "광고비", value: fmtKrw(totals.adSpend) },
     { label: "공헌이익", value: fmtKrw(totals.contributionProfit), tone: totals.contributionProfit >= 0 ? "good" : "warn" },
-    { label: "일평균 공헌이익", value: fmtKrw(avgProfit) },
+    { label: `일평균 공헌이익${avgNote}`, value: avgProfit !== null ? fmtKrw(avgProfit) : daily.some((d) => d.date === today) ? "— (오늘 진행 중)" : "—" },
     { label: "최고 이익일", value: bestDay ? `${bestDay.date} · ${fmtKrw(bestDay.contributionProfit)}` : "—" },
     { label: "MER (전체 매출 ÷ 광고비)", value: fmtPct(totals.roas, 1) },
   ];
@@ -1456,7 +1458,8 @@ function CampaignTable({
           {campaigns.map((c) => (
             <tr key={c.campaignId} className="text-gray-700 dark:text-zinc-300">
               <td className="py-2 pr-4">
-                <div className="max-w-[260px] break-words break-keep line-clamp-2" title={c.campaignName}>{breakAtUnderscore(c.campaignName)}</div>
+                {/* 폭 고정: 모바일에서 다른 열에 밀려 110px 로 눌리면 캠페인 구분 부분(끝)이 잘림. 표는 가로 스크롤 */}
+                <div className="w-[260px] break-words break-keep line-clamp-2" title={c.campaignName}>{breakAtUnderscore(c.campaignName)}</div>
                 <div className="text-[10px] text-gray-400 dark:text-zinc-500">{c.campaignId}</div>
               </td>
               <td className="py-2 pr-3 text-right tabular-nums">
