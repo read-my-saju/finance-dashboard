@@ -506,7 +506,7 @@ function ChannelTable({ cur, mode, colors, focus }: { cur: ChannelPeriod; mode: 
                 <div className="grid gap-1.5 border-t border-gray-100 pt-2 text-xs dark:border-zinc-800">
                   {g.children.map((c) => (
                     <div key={c.key} className="flex justify-between gap-2 tabular-nums text-gray-600 dark:text-zinc-400">
-                      <span className="break-words break-keep line-clamp-2">{breakAtUnderscore(nameOf(c))}</span>
+                      <span className="min-w-0 break-words break-keep line-clamp-2">{breakAtUnderscore(nameOf(c))}</span>
                       <span className="shrink-0">{man(revOf(c, mode))}{c.spend > 0 ? ` · ROAS ${pct(roasOf(c, mode), 0)}` : ""}</span>
                     </div>
                   ))}
