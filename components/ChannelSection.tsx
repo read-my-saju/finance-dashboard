@@ -53,6 +53,11 @@ const man = (n: number) => (Math.abs(n) >= 1e8 ? `${(n / 1e8).toFixed(2)}억` : 
 const pct = (n: number | null | undefined, d = 1) => (n == null || !Number.isFinite(n) ? "—" : `${n.toFixed(d)}%`);
 const fmtDay = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
 const kstToday = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+// 오늘 하루만 보는 중 = 진행 중인 날 (광고비가 결제보다 먼저 쌓여 판정하면 안 됨)
+const isLiveDay = (r: { from: string; until: string }) => r.from === r.until && r.until === kstToday();
+// 손익 표기: 1만 미만은 원, 10만 미만은 소수 한 자리 만
+const plAbs = (a: number) => (a < 1e4 ? `${NUM.format(Math.round(a))}원` : a < 1e5 ? `${(a / 1e4).toFixed(1)}만` : man(a));
+const signed = (n: number, f: (a: number) => string) => `${n < 0 ? "−" : "+"}${f(Math.abs(n))}`;
 // KST 시각. 오늘이 아니면 날짜도 붙인다.
 const fmtClock = (iso: string) => {
   const k = new Date(Date.parse(iso) + 9 * 3600 * 1000).toISOString();
@@ -145,7 +150,7 @@ function Kpi({ label, tip, value, delta, sub }: { label: string; tip: string; va
 function Hero({ cur, prev: prevPeriod, mode, colors }: { cur: ChannelPeriod; prev: ChannelPeriod | null; mode: Mode; colors: Record<ChannelGroup, string> }) {
   // 오늘 하루만 볼 때: 오전엔 광고비가 먼저 쌓이고 결제는 나중에 들어와서, 어제 하루 전체와 비교하거나
   // 손익분기로 판정하면 항상 나빠 보인다 → 비교·판정을 숨기고 '진행 중'만 표시.
-  const live = cur.range.from === cur.range.until && cur.range.until === kstToday();
+  const live = isLiveDay(cur.range);
   const prev = live ? null : prevPeriod;
   const meta = cur.groups[0];
   const isNew = mode === "new";
@@ -411,9 +416,77 @@ function DailyTooltip({ d, x, y, total, val, colors }: {
 
 // ── ③ 채널·캠페인 표 ───────────────────────────────────────────────────────
 
-function ChannelTable({ cur, mode, colors, focus }: { cur: ChannelPeriod; mode: Mode; colors: Record<ChannelGroup, string>; focus: ChannelGroup | null }) {
+/**
+ * 휴대폰 메타 카드의 캠페인 손익 리스트 (2026-10-20 시안 https://claude.ai/artifact/KfzBQnJs6pJp2JHJWDy4WZ).
+ * 손익 = 캠페인 귀속 매출 − VAT·PG·AI 원가 − 캠페인 광고비 (서버가 계산한 contributionProfit). 손익 큰 순, 누르면 계산 내역.
+ */
+function CampaignPL({ meta, prevCp, otherCp, live, nameOf }: {
+  meta: ChannelGroupRow; prevCp: number | null; otherCp: number; live: boolean; nameOf: (o: ChannelRow) => string;
+}) {
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const rows = [...meta.children].sort((a, b) => b.contributionProfit - a.contributionProfit);
+  const max = Math.max(1, ...rows.map((r) => Math.abs(r.contributionProfit)));
+  // 진행 중인 날은 오전 적자가 정상이라 초록·빨강을 뺀다.
+  const tone = (n: number) => (live ? "text-gray-900 dark:text-zinc-100" : n < 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400");
+  const cp = meta.contributionProfit;
+  const EQ = "mt-0.5 border-t border-gray-200 pt-1 font-bold text-gray-900 dark:border-zinc-700 dark:text-zinc-100";
+
+  return (
+    <div className="grid gap-1 border-t border-gray-100 pt-2.5 dark:border-zinc-800">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[13px] font-bold text-gray-900 dark:text-zinc-100">캠페인 손익</span>
+        <span className="text-right tabular-nums">
+          <b className={`text-lg font-extrabold ${tone(cp)}`}>{signed(cp, plAbs)}</b>
+          <span className="block text-[11px] text-gray-400 dark:text-zinc-500">
+            {live ? "하루가 끝난 뒤 판단하세요" : prevCp != null && <>이전 기간 {signed(prevCp, plAbs)} {prevCp > 0 && <Delta cur={cp} prev={prevCp} ratio />}</>}
+          </span>
+        </span>
+      </div>
+      <div className="divide-y divide-gray-100 dark:divide-zinc-800">
+        {rows.map((r) => {
+          const open = openKey === r.key;
+          const v = r.contributionProfit;
+          return (
+            <button key={r.key} type="button" aria-expanded={open} onClick={() => setOpenKey(open ? null : r.key)}
+              className="grid w-full gap-1 rounded-lg py-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+              <span className="flex items-baseline justify-between gap-2.5">
+                <span className="min-w-0 break-words break-keep text-[13px] font-semibold text-gray-800 dark:text-zinc-200">
+                  <span className="mr-1.5 text-[10px] text-gray-400 dark:text-zinc-500">{open ? "▼" : "▶"}</span>{breakAtUnderscore(nameOf(r))}
+                </span>
+                <span className={`shrink-0 text-base font-extrabold tabular-nums ${tone(v)}`}>{signed(v, plAbs)}</span>
+              </span>
+              <span className="pl-4 text-xs tabular-nums text-gray-500 dark:text-zinc-400">
+                광고비 {r.spend > 0 ? man(r.spend) : "없음"} · 매출 {man(r.rev)} · ROAS {pct(roasOf(r, "all"), 0)}
+              </span>
+              <span className="ml-4 h-1 overflow-hidden rounded-full bg-gray-100 dark:bg-zinc-800">
+                <span className={`block h-full rounded-full ${live ? "bg-gray-300 dark:bg-zinc-600" : v < 0 ? "bg-rose-500/75" : "bg-emerald-500/75"}`}
+                  style={{ width: `${(Math.abs(v) / max) * 100}%` }} />
+              </span>
+              {open && (
+                <span className="ml-4 mt-1 grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 rounded-lg bg-gray-50 px-2.5 py-2 text-xs tabular-nums text-gray-600 dark:bg-zinc-950 dark:text-zinc-300">
+                  <span>매출 ({NUM.format(r.n)}건)</span><span className="text-right">{won(r.rev)}</span>
+                  <span>− VAT·PG·AI 원가</span><span className="text-right">{won(r.rev - r.spend - v)}</span>
+                  <span>− 광고비</span><span className="text-right">{won(r.spend)}</span>
+                  <span className={EQ}>= 손익</span><span className={`${EQ} text-right`}>{signed(v, won)}</span>
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      <p className="break-keep text-xs leading-relaxed text-gray-400 dark:text-zinc-500">
+        {live ? "오전엔 광고비가 먼저 쌓이고 결제는 나중에 들어와서 적자로 보일 수 있어요."
+          : <>메타 캠페인만 더한 값이에요. 다른 채널 손익 <b className="tabular-nums text-gray-700 dark:text-zinc-300">{signed(otherCp, plAbs)}</b>을 합치면 회사 전체{" "}
+            <b className="tabular-nums text-gray-700 dark:text-zinc-300">{signed(cp + otherCp, plAbs)}</b>이에요.</>}
+      </p>
+    </div>
+  );
+}
+
+function ChannelTable({ cur, prev, mode, colors, focus }: { cur: ChannelPeriod; prev: ChannelPeriod | null; mode: Mode; colors: Record<ChannelGroup, string>; focus: ChannelGroup | null }) {
   const [open, setOpen] = useState<Partial<Record<ChannelGroup, boolean>>>({ meta: true });
   const bep = cur.metaBreakEvenRoas;
+  const live = isLiveDay(cur.range);
   const total = cur.groups.reduce((s, g) => s + revOf(g, mode), 0);
   const maxRev = Math.max(1, ...cur.groups.map((g) => revOf(g, mode)));
   const shortName = useShortNames(cur.groups[0].children);
@@ -495,14 +568,20 @@ function ChannelTable({ cur, mode, colors, focus }: { cur: ChannelPeriod; mode: 
             <div key={k} className={`grid gap-2 rounded-xl border border-gray-200 px-3.5 py-3 dark:border-zinc-800 ${focus === k ? "bg-blue-50/60 dark:bg-blue-950/30" : ""}`}>
               <div className="flex items-center justify-between gap-2 font-bold text-gray-900 dark:text-zinc-100">
                 <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: colors[k] }} />{LABEL[k]}</span>
-                <StatusChip roas={r} bep={bep} group={k} />
+                {live && k === "meta"
+                  ? <span className="rounded-md border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-xs font-bold text-gray-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">진행 중</span>
+                  : <StatusChip roas={r} bep={bep} group={k} />}
               </div>
               <div className="grid grid-cols-3 gap-1.5 text-xs text-gray-400 dark:text-zinc-500">
                 <div>매출<b className="block text-sm tabular-nums text-gray-900 dark:text-zinc-100">{man(revOf(g, mode))}</b></div>
                 <div>비중<b className="block text-sm tabular-nums text-gray-900 dark:text-zinc-100">{sharePct(g)}</b></div>
                 <div>귀속 ROAS<b className="block text-sm tabular-nums text-gray-900 dark:text-zinc-100">{pct(r, 0)}</b></div>
               </div>
-              {g.children.length > 1 && (
+              {k === "meta" && mode === "all" && g.children.length > 0 ? (
+                <CampaignPL meta={g} live={live} nameOf={nameOf}
+                  prevCp={live || !prev ? null : prev.groups[0].contributionProfit}
+                  otherCp={cur.groups.slice(1).reduce((s, x) => s + x.contributionProfit, 0)} />
+              ) : g.children.length > 1 && (
                 <div className="grid gap-1.5 border-t border-gray-100 pt-2 text-xs dark:border-zinc-800">
                   {g.children.map((c) => (
                     <div key={c.key} className="flex justify-between gap-2 tabular-nums text-gray-600 dark:text-zinc-400">
@@ -574,7 +653,7 @@ export default function ChannelSection({ data, loading, theme }: { data: Channel
             <Mix cur={cur} prev={prev} mode={mode} colors={colors} focus={focus} setFocus={setFocus} />
             <DailyChart cur={cur} prev={prev} mode={mode} colors={colors} focus={focus} theme={theme} />
           </div>
-          <ChannelTable cur={cur} mode={mode} colors={colors} focus={focus} />
+          <ChannelTable cur={cur} prev={prev} mode={mode} colors={colors} focus={focus} />
         </div>
       )}
     </div>
