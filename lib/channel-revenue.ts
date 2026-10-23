@@ -63,6 +63,8 @@ export type SetSales = {
   bySet: Array<{ name: string; rev: number; n: number }>;                 // 매출 큰 순
   byCampaign: Array<{ key: string; name: string; campaignId?: string; rev: number; n: number; totalRev: number; spend: number }>;
   daily: Array<{ date: string; rev: number; totalRev: number; n: Record<string, number>; singleN: number }>;
+  buyers: number;             // 구매자 수 (Mixpanel 구매자 ID 기준 — 기록 없는 결제는 사람을 몰라 뺌)
+  setBuyers: number;          // 그중 세트를 1번 이상 산 사람
 };
 
 export type ChannelPeriod = {
@@ -94,6 +96,7 @@ type Tagged = {
   isNew: boolean;
   restored: boolean;
   set: string | null;
+  user?: string;
 };
 
 type Range = { from: string; until: string };
@@ -167,7 +170,7 @@ export function buildChannelPeriod(args: {
   const tagged: Tagged[] = payments.map((p) => {
     const a = p.orderId ? attributions.get(p.orderId) : undefined;
     const ch = classifyChannel(a, campaigns);
-    return { p, ...ch, isNew: Boolean(a?.isNew), restored: a?.how === "touch", set: setNameOf(a?.rt, p.amount?.total) };
+    return { p, ...ch, isNew: Boolean(a?.isNew), restored: a?.how === "touch", set: setNameOf(a?.rt, p.amount?.total), user: a?.user };
   });
 
   const groups: ChannelGroupRow[] = CHANNEL_ORDER.map((group) => {
@@ -243,6 +246,13 @@ function buildSetSales(tagged: Tagged[], metaCampaigns: ChannelRow[], range: Ran
   const all = sum(sets).totals;
   const single = sum(tagged.filter((t) => !t.set)).totals;
 
+  // 구매자 기준: 같은 사람 결제를 묶어, 결제 건수로 세는 결제(취소 제외)가 있으면 1명.
+  const byUser = new Map<string, Tagged[]>();
+  for (const t of tagged) if (t.user) byUser.set(t.user, [...(byUser.get(t.user) || []), t]);
+  const users = Array.from(byUser.values());
+  const buyers = users.filter((items) => sum(items).totals.reportCount > 0).length;
+  const setBuyers = users.filter((items) => sum(items.filter((t) => t.set)).totals.reportCount > 0).length;
+
   const names = Array.from(new Set(sets.map((t) => t.set!)));
   const bySet = names
     .map((name) => {
@@ -286,6 +296,8 @@ function buildSetSales(tagged: Tagged[], metaCampaigns: ChannelRow[], range: Ran
     singleN: single.reportCount,
     bySet: bySet.map(({ name, rev, n }) => ({ name, rev, n })),
     byCampaign,
+    buyers,
+    setBuyers,
     daily,
   };
 }
