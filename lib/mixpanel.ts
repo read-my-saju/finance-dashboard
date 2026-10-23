@@ -65,7 +65,7 @@ function kstStartMs(ymd: string): number {
 }
 
 type RawPurchase = {
-  t: number; d: string; tx?: string;
+  t: number; d: string; tx?: string; rt?: string;
   src?: string; med?: string; camp?: string; cont?: string; inf?: string;
 };
 export type Touch = [number, string | null, string | null, string | null, string | null, 0 | 1, string | null];
@@ -73,7 +73,7 @@ type TouchState = { touch: Touch[]; apps: Array<[number, "IG" | "FB" | "KAKAO" |
 
 const PURCHASES_JQL = (from: string, to: string) => `function main(){
   return Events({from_date:'${from}',to_date:'${to}',event_selectors:[{event:'s2s_purchase_verified'}]})
-  .map(function(e){var p=e.properties;return {t:e.time,d:e.distinct_id,tx:p.transaction_id,
+  .map(function(e){var p=e.properties;return {t:e.time,d:e.distinct_id,tx:p.transaction_id,rt:p.report_type,
     src:p.utm_source,med:p.utm_medium,camp:p.utm_campaign,cont:p.utm_content,inf:p.influencer_code};});
 }`;
 
@@ -162,7 +162,7 @@ export async function fetchPurchaseAttributions(from: string, until: string): Pr
   return raw.map((r): PurchaseAttribution => {
     // 1분 여유: 같은 결제의 클라이언트 이벤트(purchase_verified)가 몇 초 앞서 찍히는 경우 재구매로 오판 방지.
     const isNew = !(buys.get(r.d) || []).some((t) => t < r.t - 60_000);
-    const base = { tx: r.tx!, user: r.d, ts: r.t, isNew };
+    const base = { tx: r.tx!, user: r.d, ts: r.t, isNew, rt: r.rt };
     if (hasUtm(r)) {
       return { ...base, how: "utm", src: r.src, med: r.med, camp: r.camp, cont: r.cont, inf: r.inf };
     }

@@ -47,11 +47,11 @@ const TIPS = {
   cov: "결제 중 유입 채널을 확인한 비율. 결제 이벤트에 UTM이 없으면 결제 전 7일 방문기록으로 복원해요.",
 };
 
-const NUM = new Intl.NumberFormat("ko-KR");
+export const NUM = new Intl.NumberFormat("ko-KR");
 const won = (n: number) => `₩${NUM.format(Math.round(n))}`;
-const man = (n: number) => (Math.abs(n) >= 1e8 ? `${(n / 1e8).toFixed(2)}억` : `${NUM.format(Math.round(n / 1e4))}만`);
+export const man = (n: number) => (Math.abs(n) >= 1e8 ? `${(n / 1e8).toFixed(2)}억` : `${NUM.format(Math.round(n / 1e4))}만`);
 const pct = (n: number | null | undefined, d = 1) => (n == null || !Number.isFinite(n) ? "—" : `${n.toFixed(d)}%`);
-const fmtDay = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
+export const fmtDay = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
 const kstToday = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 // KST 시각. 오늘이 아니면 날짜도 붙인다.
 const fmtClock = (iso: string) => {
