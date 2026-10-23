@@ -26,6 +26,7 @@ import {
   type ChannelGroup,
   type PurchaseAttribution,
 } from "./channel";
+import { setNameOf } from "./sets";
 
 // meta 가 항상 0번 (groups[0] 을 메타로 씀). 순서는 화면 누적 막대 순서와 같다 (인접 색 대비 검증된 순서).
 export const CHANNEL_ORDER: ChannelGroup[] = ["meta", "search", "search_ad", "owned", "influencer", "referral", "unattributed"];
@@ -53,6 +54,17 @@ export type ChannelDaily = {
   newRev: Record<ChannelGroup, number>;
 };
 
+/** 세트 판매 (전체 고객 기준). 매출·건수는 채널 표와 같은 computeProfit 순매출·결제 건수. */
+export type SetSales = {
+  rev: number;
+  n: number;
+  singleRev: number;          // 세트 아닌 결제 (단품·질문권)
+  singleN: number;
+  bySet: Array<{ name: string; rev: number; n: number }>;                 // 매출 큰 순
+  byCampaign: Array<{ key: string; name: string; campaignId?: string; rev: number; n: number; totalRev: number; spend: number }>;
+  daily: Array<{ date: string; rev: number; totalRev: number; n: Record<string, number>; singleN: number }>;
+};
+
 export type ChannelPeriod = {
   range: { from: string; until: string };
   revenue: number;
@@ -71,6 +83,7 @@ export type ChannelPeriod = {
   unattributedCount: number;
   groups: ChannelGroupRow[];
   daily: ChannelDaily[];
+  sets: SetSales;
 };
 
 type Tagged = {
@@ -80,6 +93,7 @@ type Tagged = {
   campaignId?: string;
   isNew: boolean;
   restored: boolean;
+  set: string | null;
 };
 
 type Range = { from: string; until: string };
@@ -153,7 +167,7 @@ export function buildChannelPeriod(args: {
   const tagged: Tagged[] = payments.map((p) => {
     const a = p.orderId ? attributions.get(p.orderId) : undefined;
     const ch = classifyChannel(a, campaigns);
-    return { p, ...ch, isNew: Boolean(a?.isNew), restored: a?.how === "touch" };
+    return { p, ...ch, isNew: Boolean(a?.isNew), restored: a?.how === "touch", set: setNameOf(a?.rt, p.amount?.total) };
   });
 
   const groups: ChannelGroupRow[] = CHANNEL_ORDER.map((group) => {
@@ -218,6 +232,60 @@ export function buildChannelPeriod(args: {
     restoredCount: restored.reportCount,
     unattributedCount: unattributed.n,
     groups,
+    daily,
+    sets: buildSetSales(tagged, meta.children, range),
+  };
+}
+
+function buildSetSales(tagged: Tagged[], metaCampaigns: ChannelRow[], range: Range): SetSales {
+  const sum = (items: Tagged[]) => computeProfit({ payments: items.map((t) => t.p), metaByDay: [], range });
+  const sets = tagged.filter((t) => t.set);
+  const all = sum(sets).totals;
+  const single = sum(tagged.filter((t) => !t.set)).totals;
+
+  const names = Array.from(new Set(sets.map((t) => t.set!)));
+  const bySet = names
+    .map((name) => {
+      const r = sum(sets.filter((t) => t.set === name));
+      return { name, rev: r.totals.netRevenue, n: r.totals.reportCount, daily: r.daily };
+    })
+    .sort((a, b) => b.rev - a.rev);
+
+  // 캠페인 행 = 위 채널 표의 메타 캠페인 그대로 + 메타 외 채널 1줄 (같은 결제·같은 키로 묶어 두 표 숫자가 맞게)
+  const metaSet = sets.filter((t) => t.group === "meta");
+  const byCampaign = [
+    ...metaCampaigns.map((c) => {
+      const r = sum(metaSet.filter((t) => (t.campaignId || `meta:${t.detail}`) === c.key)).totals;
+      return { key: c.key, name: c.name, campaignId: c.campaignId, rev: r.netRevenue, n: r.reportCount, totalRev: c.rev, spend: c.spend };
+    }),
+    (() => {
+      const r = sum(sets.filter((t) => t.group !== "meta")).totals;
+      const total = sum(tagged.filter((t) => t.group !== "meta")).totals;
+      return { key: "other", name: "메타 외 채널", rev: r.netRevenue, n: r.reportCount, totalRev: total.netRevenue, spend: 0 };
+    })(),
+  ];
+
+  const dayRev = (rows: Array<{ date: string; netRevenue: number }>) => new Map(rows.map((d) => [d.date, d.netRevenue]));
+  const dayN = (rows: Array<{ date: string; reportCount: number }>) => new Map(rows.map((d) => [d.date, d.reportCount]));
+  const setRev = dayRev(sum(sets).daily);
+  const totRev = dayRev(sum(tagged).daily);
+  const singleN = dayN(sum(tagged.filter((t) => !t.set)).daily);
+  const nBySet = bySet.map((s) => [s.name, dayN(s.daily)] as const);
+  const daily = ymdRange(range.from, range.until).map((date) => ({
+    date,
+    rev: setRev.get(date) || 0,
+    totalRev: totRev.get(date) || 0,
+    n: Object.fromEntries(nBySet.map(([name, m]) => [name, m.get(date) || 0])),
+    singleN: singleN.get(date) || 0,
+  }));
+
+  return {
+    rev: all.netRevenue,
+    n: all.reportCount,
+    singleRev: single.netRevenue,
+    singleN: single.reportCount,
+    bySet: bySet.map(({ name, rev, n }) => ({ name, rev, n })),
+    byCampaign,
     daily,
   };
 }

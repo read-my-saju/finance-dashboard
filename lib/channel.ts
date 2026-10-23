@@ -39,6 +39,7 @@ export type PurchaseAttribution = {
   fbclid?: boolean;
   ref?: string;            // 외부 referring domain
   app?: "IG" | "FB" | "KAKAO" | "NAVER";
+  rt?: string;             // 결제 이벤트 report_type — 세트 구분용 (lib/sets.ts)
 };
 
 export type CampaignRef = { id: string; name: string };

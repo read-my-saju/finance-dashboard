@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { calculateBreakEvenRoas, calculateRoas } from "@/lib/calc";
 import { breakAtUnderscore } from "@/lib/campaign-name";
 import ChannelSection, { type ChannelsData } from "./ChannelSection";
+import SetSales from "./SetSales";
 import {
   Bar,
   BarChart,
@@ -466,6 +467,19 @@ export default function Dashboard() {
 
       {/* ── 1-1. 채널 성과 (매출 유입 경로 · 메타 귀속 ROAS) ─────────────── */}
       <ChannelSection data={channels} loading={channelsLoading} theme={theme} />
+
+      {/* ── 1-2. 세트 판매 (채널 성과와 같은 결제·귀속 데이터) ───────────────── */}
+      {channels?.cur?.sets && (
+        <div className="mt-4">
+          <CollapsibleCard
+            title="세트 판매"
+            subtitle={`세트 ${channels.cur.sets.n.toLocaleString("ko-KR")}건 · 전체 고객 기준`}
+            defaultOpen
+          >
+            <SetSales sets={channels.cur.sets} theme={theme} />
+          </CollapsibleCard>
+        </div>
+      )}
 
       {/* ── 2. 순매출 vs 광고비 + 기간 요약 ─────────────────────────────── */}
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">

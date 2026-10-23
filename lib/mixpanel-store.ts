@@ -21,7 +21,7 @@ import { isKvEnabled, kv } from "./kv";
 import { fetchPurchaseAttributions, MixpanelConfigError } from "./mixpanel";
 import type { PurchaseAttribution } from "./channel";
 
-const KEY_PREFIX = "mx:attr:v3:"; // v3: 2026-10-19 접점 복원 규칙 변경(lastTouch)으로 전 기간 재조회
+const KEY_PREFIX = "mx:attr:v4:"; // v4: 2026-10-23 report_type(세트 구분) 추가로 전 기간 재조회. v3: 10/19 lastTouch
 const LOCK_KEY = "mx:attr:lock";
 const LOCK_MS = 60_000;
 const LOCK_WAIT_MS = 20_000;

@@ -11,6 +11,7 @@ import { classifyChannel, type CampaignRef, type PurchaseAttribution } from "./c
 import { buildChannelPeriod, campaignRefs, metaRoasRange } from "./channel-revenue";
 import { lastTouch, onePerTx, type Touch } from "./mixpanel";
 import { commonCampaignWords, shortCampaignName } from "./campaign-name";
+import { setNameOf } from "./sets";
 import { buildRecords, daysBetween, isFinal, planFetch, splitByDay, type DayRecord } from "./mixpanel-store";
 
 const CAMPAIGNS: CampaignRef[] = [
@@ -128,6 +129,38 @@ assert.equal(g("search").rev, 19_900);
 assert.equal(period.restoredCount, 1);
 assert.equal(period.unattributedCount, 1);
 assert.equal(Math.round(period.coverage! * 10), Math.round((89_600 - 9_900) / 89_600 * 1000));
+// ── 세트 판매: (report_type, 금액) 조합으로 구분 ─────────────────────────
+assert.equal(setNameOf("LIFE_REPORT_V3", 44_900), "인생+신년운세 세트");
+assert.equal(setNameOf("NEWYEAR_2027", 44_900), "인생+신년운세 세트", "신년 결제창에서 산 같은 세트");
+assert.equal(setNameOf("COMPATIBILITY", 49_900), null, "궁합 단품 49,900 은 세트 아님");
+assert.equal(setNameOf("LIFE_REPORT_V3", 29_900), null);
+assert.equal(setNameOf(undefined, 44_900), null, "Mixpanel 기록 없으면 단품 취급");
+const withSets = buildChannelPeriod({
+  payments: [pay("s1", 44_900), pay("s2", 49_900), pay("x1", 29_900), pay("s3", 44_900), pay("x2", 9_900)],
+  metaRows: [metaRow(CAMPAIGNS[0].id, 50_000, 0), metaRow(CAMPAIGNS[2].id, 10_000, 0)],
+  attributions: new Map([
+    attr("s1", { src: "ig", med: "paid", camp: CAMPAIGNS[0].id, rt: "LIFE_REPORT_V3" }),
+    attr("s2", { src: "ig", med: "paid", camp: CAMPAIGNS[0].id, rt: "LIFE_REPORT_V3" }),
+    attr("x1", { src: "ig", med: "paid", camp: CAMPAIGNS[0].id, rt: "LIFE_REPORT_V3" }),
+    attr("s3", { how: "touch", ref: "m.search.naver.com", rt: "NEWYEAR_2027" }),
+    // x2 는 Mixpanel 기록 없음 → 단품
+  ]),
+  campaigns: CAMPAIGNS,
+  range,
+});
+const ss = withSets.sets;
+assert.equal(ss.rev, 139_700);
+assert.equal(ss.n, 3);
+assert.equal(ss.rev + ss.singleRev, withSets.revenue, "세트 + 단품 = 전체 매출");
+assert.deepEqual(ss.bySet.map((x) => [x.name, x.n, x.rev]), [["인생+신년운세 세트", 2, 89_800], ["인생+연애운 세트", 1, 49_900]]);
+const succ = ss.byCampaign.find((x) => x.campaignId === CAMPAIGNS[0].id)!;
+assert.deepEqual([succ.n, succ.rev, succ.totalRev, succ.spend], [2, 94_800, 124_700, 50_000], "캠페인 행 매출·광고비 = 위 채널 표 값");
+assert.deepEqual(ss.byCampaign.find((x) => x.campaignId === CAMPAIGNS[2].id)!.n, 0, "광고비만 쓴 캠페인도 남음");
+const other = ss.byCampaign.find((x) => x.key === "other")!;
+assert.deepEqual([other.n, other.rev, other.totalRev], [1, 44_900, 54_800]);
+assert.equal(ss.byCampaign.reduce((s, x) => s + x.rev, 0), ss.rev, "캠페인별 세트 합 = 세트 매출");
+assert.deepEqual(ss.daily, [{ date: "2026-10-07", rev: 139_700, totalRev: 179_500, n: { "인생+신년운세 세트": 2, "인생+연애운 세트": 1 }, singleN: 2 }]);
+
 // 결제 0건인 캠페인도 광고비와 함께 남는다
 const job = g("meta").children.find((x) => x.campaignId === CAMPAIGNS[2].id)!;
 assert.equal(job.rev, 0);
