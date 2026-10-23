@@ -206,6 +206,16 @@ async function refresh(days: string[], stored: Map<string, DayRecord>, expected:
   }
 }
 
+// Mixpanel 이 느릴 때 저장본으로 넘어가기까지 기다리는 최대 시간. JQL 45초 × 2단계 + 잠금 대기 20초가
+// Vercel 60초 제한을 넘겨 화면이 오류로 끝났다 (2026-10-23 Mixpanel 장애). 갱신은 뒤에서 계속 돈다.
+const STALE_FALLBACK_MS = 15_000;
+
+/** 저장본이 있으면(canFallBack) ms 안에 끝나지 않는 갱신을 실패로 보고 저장본을 쓰게 한다. 없으면 끝까지 기다린다. */
+export function withFallbackBudget(p: Promise<{ failed: unknown }>, canFallBack: boolean, ms: number): Promise<{ failed: unknown }> {
+  if (!canFallBack) return p;
+  return Promise.race([p, sleep(ms).then(() => ({ failed: new Error(`Mixpanel 이 ${ms / 1000}초 안에 응답하지 않음`) }))]);
+}
+
 /**
  * KST [from, until] 결제 귀속. 저장본을 우선 쓰고, 필요한 날짜만 Mixpanel 에서 받아 저장한다.
  * expected: 날짜별 토스 결제 수 (불완전한 조회 판정용).
@@ -220,7 +230,8 @@ export async function loadStoredAttributions(
   let stale = false;
 
   if (planFetch(days, stored, Date.now()).length > 0) {
-    const { failed } = await refresh(days, stored, expected);
+    const canFallBack = days.every((d) => stored.has(d));
+    const { failed } = await withFallbackBudget(refresh(days, stored, expected), canFallBack, STALE_FALLBACK_MS);
     if (failed) {
       if (failed instanceof MixpanelConfigError || days.some((d) => !stored.has(d))) throw failed;
       stale = true;

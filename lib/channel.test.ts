@@ -12,7 +12,7 @@ import { buildChannelPeriod, campaignRefs, metaRoasRange } from "./channel-reven
 import { lastTouch, onePerTx, type Touch } from "./mixpanel";
 import { commonCampaignWords, shortCampaignName } from "./campaign-name";
 import { setNameOf } from "./sets";
-import { buildRecords, daysBetween, isFinal, planFetch, splitByDay, type DayRecord } from "./mixpanel-store";
+import { buildRecords, daysBetween, isFinal, planFetch, splitByDay, withFallbackBudget, type DayRecord } from "./mixpanel-store";
 
 const CAMPAIGNS: CampaignRef[] = [
   { id: "120252368489210722", name: "26_3Q_sales_rebranding_판매_성공운" },
@@ -279,4 +279,12 @@ assert.equal(commonCampaignWords([CAMPAIGNS[0].name]).size, 0, "캠페인 1개�
 assert.equal(shortCampaignName("26_4Q-sales rebranding판매", new Set()), "26_4Q-sales rebranding판매", "공통 단어 없으면 원래 이름 그대로");
 assert.equal(shortCampaignName("a_b", new Set(["a", "b"])), "a_b", "남는 단어가 없으면 원래 이름");
 
-console.log("channel.test OK");
+// Mixpanel 이 멈춰도 저장본이 있으면 정해진 시간 안에 실패로 넘긴다 (2026-10-23 장애)
+void (async () => {
+  const never = new Promise<{ failed: unknown }>(() => undefined);
+  assert.ok((await withFallbackBudget(never, true, 20)).failed instanceof Error, "저장본 있으면 시간 초과 = 실패(저장본 사용)");
+  assert.equal((await withFallbackBudget(Promise.resolve({ failed: null }), true, 1_000)).failed, null, "제때 끝나면 그대로");
+  const waited = await Promise.race([withFallbackBudget(never, false, 20).then(() => "budget"), new Promise((r) => setTimeout(() => r("still waiting"), 80))]);
+  assert.equal(waited, "still waiting", "저장본 없으면 끝까지 기다림");
+  console.log("channel.test OK");
+})();
