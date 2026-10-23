@@ -159,7 +159,7 @@ assert.deepEqual(ss.byCampaign.find((x) => x.campaignId === CAMPAIGNS[2].id)!.n,
 const other = ss.byCampaign.find((x) => x.key === "other")!;
 assert.deepEqual([other.n, other.rev, other.totalRev], [1, 44_900, 54_800]);
 assert.equal(ss.byCampaign.reduce((s, x) => s + x.rev, 0), ss.rev, "캠페인별 세트 합 = 세트 매출");
-assert.deepEqual([ss.buyers, ss.setBuyers], [3, 2], "구매자 기준: 세트 2번 산 u1 은 1명, Mixpanel 기록 없는 x2 는 뺌");
+assert.deepEqual([ss.buyers, ss.setBuyers], [4, 2], "구매자 기준: 세트 2번 산 u1 은 1명, Mixpanel 기록 없는 x2 는 따로 1명");
 const cancelSets = buildChannelPeriod({
   payments: [{ ...pay("k1", 44_900), status: "CANCELLED" }, pay("k2", 29_900)],
   metaRows: [],

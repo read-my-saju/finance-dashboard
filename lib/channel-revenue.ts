@@ -63,7 +63,7 @@ export type SetSales = {
   bySet: Array<{ name: string; rev: number; n: number }>;                 // 매출 큰 순
   byCampaign: Array<{ key: string; name: string; campaignId?: string; rev: number; n: number; totalRev: number; spend: number }>;
   daily: Array<{ date: string; rev: number; totalRev: number; n: Record<string, number>; singleN: number }>;
-  buyers: number;             // 구매자 수 (Mixpanel 구매자 ID 기준 — 기록 없는 결제는 사람을 몰라 뺌)
+  buyers: number;             // 구매자 수 (Mixpanel 구매자 ID 기준 — 기록 없는 결제는 건마다 1명)
   setBuyers: number;          // 그중 세트를 1번 이상 산 사람
 };
 
@@ -247,10 +247,16 @@ function buildSetSales(tagged: Tagged[], metaCampaigns: ChannelRow[], range: Ran
   const single = sum(tagged.filter((t) => !t.set)).totals;
 
   // 구매자 기준: 같은 사람 결제를 묶어, 결제 건수로 세는 결제(취소 제외)가 있으면 1명.
+  // Mixpanel 기록 없는 결제는 사람을 몰라 건마다 1명으로 센다 (세트 판정도 기록이 있어야 하므로 분모만 빠지면 비율이 부풀음).
   const byUser = new Map<string, Tagged[]>();
-  for (const t of tagged) if (t.user) byUser.set(t.user, [...(byUser.get(t.user) || []), t]);
+  for (const t of tagged) {
+    if (!t.user) continue;
+    const cur = byUser.get(t.user) || [];
+    cur.push(t);
+    byUser.set(t.user, cur);
+  }
   const users = Array.from(byUser.values());
-  const buyers = users.filter((items) => sum(items).totals.reportCount > 0).length;
+  const buyers = users.filter((items) => sum(items).totals.reportCount > 0).length + sum(tagged.filter((t) => !t.user)).totals.reportCount;
   const setBuyers = users.filter((items) => sum(items.filter((t) => t.set)).totals.reportCount > 0).length;
 
   const names = Array.from(new Set(sets.map((t) => t.set!)));
