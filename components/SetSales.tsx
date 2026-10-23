@@ -45,7 +45,11 @@ function Bar({ value, color }: { value: number | null; color: string }) {
 }
 
 function BySetTable({ sets, theme }: { sets: SetSalesData; theme: Theme }) {
-  const days = sets.daily.length || 1;
+  // 하루 평균은 그 세트가 처음 팔린 날부터 — 기간 전체로 나누면 출시 전 날짜까지 들어가 낮게 나온다.
+  const daysSince = (name: string) => {
+    const i = sets.daily.findIndex((d) => (d.n[name] || 0) > 0);
+    return i < 0 ? 1 : sets.daily.length - i;
+  };
   return (
     <section className="min-w-0">
       <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">세트별</h3>
@@ -53,7 +57,7 @@ function BySetTable({ sets, theme }: { sets: SetSalesData; theme: Theme }) {
         <table className="w-full whitespace-nowrap text-[13px]">
           <thead>
             <tr className="text-xs text-gray-400 dark:text-zinc-500">
-              <th className={TH_NAME}>세트</th><th className={TH}>매출</th><th className={TH}>세트 중</th><th className={TH}>결제</th><th className={`${TH} hidden pr-0 sm:table-cell`}>하루 평균</th>
+              <th className={TH_NAME}>세트</th><th className={TH}>매출</th><th className={TH}>세트 중</th><th className={TH}>결제</th><th className={`${TH} hidden pr-0 sm:table-cell`} title="그 세트가 처음 팔린 날부터 계산">하루 평균</th>
             </tr>
           </thead>
           <tbody>
@@ -65,7 +69,7 @@ function BySetTable({ sets, theme }: { sets: SetSalesData; theme: Theme }) {
                 <td className={`${TD} font-bold text-gray-900 dark:text-zinc-100`}>{man(s.rev)}</td>
                 <td className={TD}>{pct(share(s.rev, sets.rev))}</td>
                 <td className={TD}>{NUM.format(s.n)}</td>
-                <td className={`${TD} hidden pr-0 sm:table-cell ${MUTED}`}>{(s.n / days).toFixed(1)}건</td>
+                <td className={`${TD} hidden pr-0 sm:table-cell ${MUTED}`}>{(s.n / daysSince(s.name)).toFixed(1)}건</td>
               </tr>
             ))}
           </tbody>
