@@ -207,8 +207,10 @@ async function refresh(days: string[], stored: Map<string, DayRecord>, expected:
 }
 
 // Mixpanel 이 느릴 때 저장본으로 넘어가기까지 기다리는 최대 시간. JQL 45초 × 2단계 + 잠금 대기 20초가
-// Vercel 60초 제한을 넘겨 화면이 오류로 끝났다 (2026-10-23 Mixpanel 장애). 갱신은 뒤에서 계속 돈다.
-const STALE_FALLBACK_MS = 15_000;
+// Vercel 60초 제한을 넘겨 화면이 오류로 끝났다 (2026-10-23 Mixpanel 장애).
+// 느려도 응답은 하는 경우(그날 회복 직후 29초)는 요청 안에서 갱신이 끝나도록 넉넉히 잡는다 — 응답 뒤 남은
+// 갱신은 Vercel 이 끊을 수 있다. 토스·메타 조회(앞 단계)까지 더해도 60초 안.
+const STALE_FALLBACK_MS = 35_000;
 
 /** 저장본이 있으면(canFallBack) ms 안에 끝나지 않는 갱신을 실패로 보고 저장본을 쓰게 한다. 없으면 끝까지 기다린다. */
 export function withFallbackBudget(p: Promise<{ failed: unknown }>, canFallBack: boolean, ms: number): Promise<{ failed: unknown }> {
