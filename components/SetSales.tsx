@@ -192,9 +192,10 @@ export default function SetSales({ sets, theme }: { sets: SetSalesData; theme: T
   }
   return (
     <div className="grid gap-6">
-      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
         <Tile label="세트 매출" value={man(sets.rev)} sub={`매출의 ${pct(share(sets.rev, totalRev), 0)}`} detail={`(전체 ${man(totalRev)} 중)`} />
         <Tile label="세트 결제" value={`${NUM.format(sets.n)}건`} sub={`결제의 ${pct(share(sets.n, totalN), 0)}`} detail={`(전체 ${NUM.format(totalN)}건 중)`} />
+        <Tile label="세트 구매자" value={`${NUM.format(sets.setBuyers)}명`} sub={`구매자의 ${pct(share(sets.setBuyers, sets.buyers), 0)}`} detail={`(전체 ${NUM.format(sets.buyers)}명 중)`} />
         <Tile
           label="세트 객단가"
           value={setAov == null ? "—" : `${NUM.format(Math.round(setAov))}원`}

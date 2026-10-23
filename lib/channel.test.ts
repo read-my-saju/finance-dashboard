@@ -139,10 +139,10 @@ const withSets = buildChannelPeriod({
   payments: [pay("s1", 44_900), pay("s2", 49_900), pay("x1", 29_900), pay("s3", 44_900), pay("x2", 9_900)],
   metaRows: [metaRow(CAMPAIGNS[0].id, 50_000, 0), metaRow(CAMPAIGNS[2].id, 10_000, 0)],
   attributions: new Map([
-    attr("s1", { src: "ig", med: "paid", camp: CAMPAIGNS[0].id, rt: "LIFE_REPORT_V3" }),
-    attr("s2", { src: "ig", med: "paid", camp: CAMPAIGNS[0].id, rt: "LIFE_REPORT_V3" }),
-    attr("x1", { src: "ig", med: "paid", camp: CAMPAIGNS[0].id, rt: "LIFE_REPORT_V3" }),
-    attr("s3", { how: "touch", ref: "m.search.naver.com", rt: "NEWYEAR_2027" }),
+    attr("s1", { user: "u1", src: "ig", med: "paid", camp: CAMPAIGNS[0].id, rt: "LIFE_REPORT_V3" }),
+    attr("s2", { user: "u1", src: "ig", med: "paid", camp: CAMPAIGNS[0].id, rt: "LIFE_REPORT_V3" }),
+    attr("x1", { user: "u2", src: "ig", med: "paid", camp: CAMPAIGNS[0].id, rt: "LIFE_REPORT_V3" }),
+    attr("s3", { user: "u3", how: "touch", ref: "m.search.naver.com", rt: "NEWYEAR_2027" }),
     // x2 는 Mixpanel 기록 없음 → 단품
   ]),
   campaigns: CAMPAIGNS,
@@ -159,6 +159,15 @@ assert.deepEqual(ss.byCampaign.find((x) => x.campaignId === CAMPAIGNS[2].id)!.n,
 const other = ss.byCampaign.find((x) => x.key === "other")!;
 assert.deepEqual([other.n, other.rev, other.totalRev], [1, 44_900, 54_800]);
 assert.equal(ss.byCampaign.reduce((s, x) => s + x.rev, 0), ss.rev, "캠페인별 세트 합 = 세트 매출");
+assert.deepEqual([ss.buyers, ss.setBuyers], [4, 2], "구매자 기준: 세트 2번 산 u1 은 1명, Mixpanel 기록 없는 x2 는 따로 1명");
+const cancelSets = buildChannelPeriod({
+  payments: [{ ...pay("k1", 44_900), status: "CANCELLED" }, pay("k2", 29_900)],
+  metaRows: [],
+  attributions: new Map([attr("k1", { user: "v1", rt: "LIFE_REPORT_V3" }), attr("k2", { user: "v1", rt: "LIFE_REPORT_V3" })]),
+  campaigns: CAMPAIGNS,
+  range,
+}).sets;
+assert.deepEqual([cancelSets.buyers, cancelSets.setBuyers], [1, 0], "취소된 세트 결제만 있으면 세트 구매자 아님");
 assert.deepEqual(ss.daily, [{ date: "2026-10-07", rev: 139_700, totalRev: 179_500, n: { "인생+신년운세 세트": 2, "인생+연애운 세트": 1 }, singleN: 2 }]);
 
 // 결제 0건인 캠페인도 광고비와 함께 남는다
