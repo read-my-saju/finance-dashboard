@@ -52,9 +52,10 @@ export type ChannelResult = {
 // 수동 UTM 태그 → 캠페인 이름 키워드. 메타 광고 URL 을 {{campaign.id}} 로 통일하면 필요 없어짐.
 const MANUAL_TAG_KEYWORD: Array<[RegExp, string]> = [
   [/^pu_3Q_job|^pu_3Q_sun_new_mg/i, "취업운"],
-  [/^pu_[34]Q_lo/i, "연애운"],
+  // 10/22 새 소재는 pu_ 없이 4Q_lo·4Q_ny, dohwa.lin 파트너십은 264QS 로 들어옴
+  [/^(pu_)?[34]Q_lo|^264QS$/i, "연애운"],
   [/^pu_[34]Q_sun/i, "수능운"],
-  [/^pu_4Q_ny/i, "신년운"],
+  [/^(pu_)?4Q_ny/i, "신년운"],
 ];
 
 const OWNED_SOURCE: Record<string, string> = { ig: "인스타 프로필", kakao: "카카오 채널", meta: "페이스북 프로필", fb: "페이스북 프로필" };

@@ -39,6 +39,10 @@ assert.equal(c({ src: "meta", med: "display", camp: "pu_4Q_sun_new_sur_in_carous
 // 4분기 새 소재 태그 (2026-10-19 Mixpanel 실측: 연애 pu_4Q_lo_*, 신년 pu_4Q_ny_*)
 assert.equal(c({ src: "ig", med: "display", camp: "pu_4Q_lo_pf_aut_vid_261012" }).campaignId, CAMPAIGNS[3].id);
 assert.equal(c({ src: "ig", med: "display", camp: "pu_4Q_ny_la_lei_vid_261016" }).campaignId, CAMPAIGNS[5].id);
+// 10/22 새 소재 태그 — pu_ 없음 (2026-10-23 Mixpanel 실측)
+assert.equal(c({ src: "fbig", med: "bnr", camp: "4Q_lo", cont: "ex_mi" }).campaignId, CAMPAIGNS[3].id);
+assert.equal(c({ src: "fbig", med: "meta", camp: "264QS", cont: "lv_re_hj" }).campaignId, CAMPAIGNS[3].id);
+assert.equal(c({ src: "fbig", med: "img", camp: "4Q_ny", cont: "ny_prof" }).campaignId, CAMPAIGNS[5].id);
 // 키워드 캠페인이 목록에 없으면 키워드 이름으로 메타에 남김
 assert.deepEqual(classifyChannel({ ...base, src: "ig", camp: "pu_3Q_lo_x" }, []), { group: "meta", detail: "연애운" });
 // 키워드 매칭은 최근 집행 캠페인으로 — 전체 기간이면 4월 옛 연애운 캠페인이 같이 들어옴 (2026-10-19 운영 화면)
