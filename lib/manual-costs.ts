@@ -13,8 +13,8 @@ export type ManualCost = { date: string; amount: number; label: string };
 export const SEEDING_AD_COSTS: ManualCost[] = [
   { date: "2026-10-02", amount: 1_100_000, label: "인플루언서 시딩 지우니·죠대리 (3.3% 총액)" },
   { date: "2026-10-06", amount: 500_000, label: "핏플루언스 시딩 (공급가)" },
-  { date: "2026-10-31", amount: 6_000_000, label: "콜보드 시딩·브랜딩 1,200만 중 10월분" },
-  { date: "2026-11-30", amount: 6_000_000, label: "콜보드 시딩·브랜딩 1,200만 중 11월분" },
+  { date: "2026-10-31", amount: 6_600_000, label: "콜보드 시딩·브랜딩 13,200,000(VAT 포함 입금액) 중 10월분" },
+  { date: "2026-11-30", amount: 6_600_000, label: "콜보드 시딩·브랜딩 13,200,000(VAT 포함 입금액) 중 11월분" },
 ];
 
 export const AI_API_PAYMENTS: ManualCost[] = [
