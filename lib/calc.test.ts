@@ -11,6 +11,7 @@
 import assert from "node:assert/strict";
 import { calc, pgFeeRateForMethodOnDate, reportCostPerUnitAt, reportCostPerUnitForDate } from "./calc";
 import { computeProfit } from "./profit";
+import { AI_API_PAYMENTS, SEEDING_AD_COSTS, manualByDay } from "./manual-costs";
 
 const r = calc({ netRevenue: 945_000, adSpend: 0, reportCount: 0, pgFeeRate: 0.032, reportCostPerUnit: 0 });
 assert.equal(Math.round(r.pgFee), 30_240, `calc.pgFee=${r.pgFee}`);
@@ -45,7 +46,8 @@ assert.equal(reportCostPerUnitForDate("2026-08-01"), 750);
 assert.equal(reportCostPerUnitForDate("2026-08-31"), 750);
 assert.equal(reportCostPerUnitForDate("2026-09-01"), 1590);
 assert.equal(reportCostPerUnitForDate("2026-09-30"), 1590);
-assert.equal(reportCostPerUnitForDate("2026-10-01"), 1752);
+// 2026-10~ 건당 0원 (API 실제 결제액은 manual-costs 로 따로)
+assert.equal(reportCostPerUnitForDate("2026-10-01"), 0);
 
 // 실제 정산 메일 재현: 매출일 2026-08-13 매출액 1,778,260 → PG이용료 56,978 (오차 1% 이내)
 const s = computeProfit({
@@ -57,20 +59,33 @@ const s = computeProfit({
 });
 assert.ok(Math.abs(s.totals.pgFee - 56_978) / 56_978 < 0.01, `settlement 2026-08-13 pgFee=${s.totals.pgFee}`);
 
-// 10/10 19:11 KST Luna 전환: 그 시각 이후 결제만 561원, 같은 날 앞선 결제는 1,752원
-assert.equal(reportCostPerUnitAt("2026-10-10", Date.parse("2026-10-10T19:10:59+09:00")), 1752);
-assert.equal(reportCostPerUnitAt("2026-10-10", Date.parse("2026-10-10T19:11:00+09:00")), 561);
-const luna = computeProfit({
+assert.equal(reportCostPerUnitAt("2026-09-30", Date.parse("2026-09-30T23:59:59+09:00")), 1590);
+assert.equal(reportCostPerUnitAt("2026-10-10", Date.parse("2026-10-10T21:00:00+09:00")), 0);
+
+// 2026-10~: 리포트 원가 = API 결제액(말일 1건), 광고비 = 메타 + 시딩(지급일). 기간 밖 항목은 빠진다.
+const oct = { from: "2026-10-01", until: "2026-10-31" };
+assert.deepEqual(manualByDay(SEEDING_AD_COSTS, { from: "2026-10-01", until: "2026-10-05" }), [{ date: "2026-10-02", spend: 1_100_000 }]);
+assert.equal(manualByDay(SEEDING_AD_COSTS, oct).reduce((s, r) => s + r.spend, 0), 7_600_000);
+assert.equal(manualByDay(SEEDING_AD_COSTS, { from: "2026-11-01", until: "2026-11-29" }).length, 0);
+const m = computeProfit({
   payments: [
-    { id: "a", status: "PAID", paidAt: "2026-10-10T18:00:00+09:00", amount: { total: 29_900 }, method: { type: "CARD" } } as any,
-    { id: "b", status: "PAID", paidAt: "2026-10-10T21:00:00+09:00", amount: { total: 29_900 }, method: { type: "CARD" } } as any,
+    { id: "a", status: "PAID", paidAt: "2026-10-02T12:00:00+09:00", amount: { total: 1_100_000 }, method: { type: "TRANSFER" } } as any,
   ],
-  metaByDay: [],
-  range: { from: "2026-10-10", until: "2026-10-10" },
+  metaByDay: [{ date: "2026-10-02", spend: 200_000 }],
+  range: oct,
+  extraAdByDay: manualByDay(SEEDING_AD_COSTS, oct),
+  extraReportCostByDay: manualByDay(AI_API_PAYMENTS, oct),
 });
-assert.equal(luna.daily[0].reportCost, 1752 + 561, `luna.daily.reportCost=${luna.daily[0].reportCost}`);
-assert.equal(luna.totals.reportCost, 1752 + 561);
-// 화면 "리포트 ₩X/건" 은 기간 실제 평균 단가
-assert.equal(luna.settings.reportCostPerUnit, (1752 + 561) / 2);
+const d2 = m.daily.find((d) => d.date === "2026-10-02")!;
+assert.equal(d2.reportCost, 0, "결제가 있어도 건당 원가 0");
+assert.equal(d2.adSpend, 200_000 + 1_100_000, "그날 메타 + 시딩");
+const d31 = m.daily.find((d) => d.date === "2026-10-31")!;
+assert.equal(d31.reportCost, 934_769, "말일에 API 결제액");
+assert.equal(d31.adSpend, 6_000_000, "결제·메타가 없는 날도 시딩 행이 생김");
+assert.equal(m.totals.reportCost, 934_769);
+assert.equal(m.totals.adSpend, 200_000 + 7_600_000);
+assert.equal(m.totals.extraAdSpend, 7_600_000);
+// 일별 합 = 기간 합계
+assert.equal(m.daily.reduce((s, d) => s + d.contributionProfit, 0).toFixed(2), m.totals.contributionProfit.toFixed(2));
 
 console.log("calc.test OK");

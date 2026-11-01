@@ -56,6 +56,7 @@ type ProfitTotals = {
   adAdvice: "증액 가능" | "광고비 주의" | "광고비 없음";
   reportCount: number;
   cancelledAmount: number;
+  extraAdSpend?: number;   // 광고비 중 시딩비 (lib/manual-costs.ts)
 };
 
 type SummaryData = {
@@ -747,6 +748,7 @@ function KpiStrip({
         delta={adDelta}
         deltaInverse
         sparkData={finishedDaily.map((d) => d.adSpend)}
+        subText={totals?.extraAdSpend ? `시딩 ${fmtKrw(totals.extraAdSpend)} 포함` : undefined}
         pal={pal}
       />
       <KpiCard

@@ -6,7 +6,7 @@
  * 계산식은 lib/calc.ts 한 곳에만 있다 (README 규칙).
  *
  * 지표 정의 (2026-10-10 사장님 확정):
- *   MER                = 토스 전체 순매출 ÷ 메타 광고비 (기존 대시보드 "ROAS" 와 같은 값)
+ *   MER                = 토스 전체 순매출 ÷ 광고비(메타 + 시딩, 2026-11-02~). 위 KPI 의 MER 과 같은 값
  *   메타 귀속 ROAS      = 메타 광고로 귀속된 순매출 ÷ 메타 광고비
  *   신규 고객 ROAS(aMER) = 메타 귀속 매출 중 첫 결제 고객분 ÷ 메타 광고비
  *   nCAC               = 메타 광고비 ÷ 메타 귀속 첫 결제 건수
@@ -19,6 +19,7 @@ import type { PortonePayment } from "./portone";
 import { aggregateMetaByDay, type MetaInsightRow } from "./meta";
 import { computeProfit } from "./profit";
 import { calculateRoas } from "./calc";
+import { AI_API_PAYMENTS, SEEDING_AD_COSTS, manualByDay } from "./manual-costs";
 import {
   classifyChannel,
   CHANNEL_LABEL,
@@ -212,11 +213,19 @@ export function buildChannelPeriod(args: {
     return { date, rev, newRev };
   });
 
-  const total = computeProfit({ payments, metaByDay: aggregateMetaByDay(metaRows), range }).totals;
+  // 회사 전체는 위 KPI 와 같은 숫자가 되도록 시딩비·API 결제액을 넣는다. 채널·캠페인 행에는 안 넣는다.
+  const total = computeProfit({
+    payments,
+    metaByDay: aggregateMetaByDay(metaRows),
+    range,
+    extraAdByDay: manualByDay(SEEDING_AD_COSTS, range),
+    extraReportCostByDay: manualByDay(AI_API_PAYMENTS, range),
+  }).totals;
   const restored = computeProfit({ payments: tagged.filter((t) => t.restored).map((t) => t.p), metaByDay: [], range }).totals;
   const meta = groups[0];
   const unattributed = groups.find((g) => g.group === "unattributed")!;
-  const roasRange = metaRoasRange(meta.roas, meta.pixelRoas, total.roas);
+  // 메타 주장 상한은 '전체 매출 ÷ 메타 광고비'로 자른다(시딩비를 넣은 MER 로 자르면 상한이 부당하게 낮아짐).
+  const roasRange = metaRoasRange(meta.roas, meta.pixelRoas, calculateRoas(total.netRevenue, meta.spend));
 
   return {
     range,
