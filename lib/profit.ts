@@ -10,7 +10,7 @@
  * 일별 결합:
  *   - 일별 순매출 = 그날 PAID 의 amount.total + PARTIAL_CANCELLED 의 (total - cancelled)
  *   - 일별 결제 건수 = 그날 PAID + PARTIAL_CANCELLED 건수
- *   - 일별 광고비 = Meta insights 의 spend (광고계정 통화 KRW)
+ *   - 일별 광고비 = Meta insights 의 spend (광고계정 통화 KRW) + 시딩비(extraAdByDay, 회사 전체 손익에만)
  *
  * lib/calc.ts 의 공식만 사용. UI/페이지에서 직접 계산하지 않는다.
  */
@@ -157,6 +157,7 @@ export type ProfitSummary = {
   totals: CalcResult & {
     reportCount: number;
     cancelledAmount: number;
+    extraAdSpend: number;      // 광고비 중 메타 외(시딩) 금액
   };
   daily: DailyProfitRow[];
 };
@@ -167,18 +168,24 @@ export function computeProfit(args: {
   range: { from: string; until: string };
   pgFeeRate?: number;
   reportCostPerUnit?: number;
+  extraAdByDay?: Array<{ date: string; spend: number }>;          // 메타 외 광고비(시딩)
+  extraReportCostByDay?: Array<{ date: string; spend: number }>;  // API 실제 결제액(2026-10~)
 }): ProfitSummary {
   const pgFeeRate = args.pgFeeRate ?? DEFAULT_PG_FEE_RATE;
   const reportCostPerUnit = args.reportCostPerUnit ?? DEFAULT_REPORT_COST_PER_UNIT;
 
   const portoneByDay = aggregatePortoneByDay(args.payments, reportCostPerUnit);
-  const adByDay = new Map<string, number>();
-  for (const r of args.metaByDay) {
-    adByDay.set(r.date, (adByDay.get(r.date) || 0) + (Number(r.spend) || 0));
-  }
+  const byDay = (rows: Array<{ date: string; spend: number }>) => {
+    const m = new Map<string, number>();
+    for (const r of rows) m.set(r.date, (m.get(r.date) || 0) + (Number(r.spend) || 0));
+    return m;
+  };
+  const adByDay = byDay([...args.metaByDay, ...(args.extraAdByDay ?? [])]);
+  const extraReportByDay = byDay(args.extraReportCostByDay ?? []);
+  const extraAdSpend = (args.extraAdByDay ?? []).reduce((s, r) => s + (Number(r.spend) || 0), 0);
 
-  // union of dates (PortOne 결제 일 + 광고비 일).
-  const allDates = new Set<string>([...portoneByDay.keys(), ...adByDay.keys()]);
+  // union of dates (PortOne 결제 일 + 광고비 일 + 손으로 넣은 원가 일).
+  const allDates = new Set<string>([...portoneByDay.keys(), ...adByDay.keys(), ...extraReportByDay.keys()]);
   const dailyArr: DailyProfitRow[] = [];
 
   let totalNetRevenue = 0;
@@ -196,7 +203,8 @@ export function computeProfit(args: {
     const vat = calculateVat(netRevenue);
     const revenueExVat = calculateRevenueExVat(netRevenue);
     const pgFee = po.pgFee;   // 결제수단별 요율로 이미 합산됨 (calc.ts pgFeeRateForMethod)
-    const reportCost = po.reportCost;   // 결제 시각별 단가로 이미 합산됨 (calc.ts reportCostPerUnitAt)
+    // 결제 시각별 단가 합산(calc.ts reportCostPerUnitAt) + 그날 넣은 API 결제액
+    const reportCost = po.reportCost + (extraReportByDay.get(date) || 0);
     const cp = calculateContributionProfit(revenueExVat, pgFee, reportCost, adSpend);
     const cm = calculateContributionMargin(cp, netRevenue);
     const roas = calculateRoas(netRevenue, adSpend);
@@ -248,6 +256,7 @@ export function computeProfit(args: {
       ...periodCalc,
       reportCount: totalReport,
       cancelledAmount: totalCancelled,
+      extraAdSpend,
     },
     daily: dailyArr,
   };

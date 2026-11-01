@@ -17,6 +17,7 @@ import {
 } from "./meta";
 import { loadIncrementalRows } from "./meta-store";
 import { computeProfit, type ProfitSummary } from "./profit";
+import { AI_API_PAYMENTS, SEEDING_AD_COSTS, manualByDay } from "./manual-costs";
 import { MixpanelConfigError } from "./mixpanel";
 import { loadStoredAttributions } from "./mixpanel-store";
 import { buildChannelPeriod, campaignRefs, type ChannelPeriod } from "./channel-revenue";
@@ -104,12 +105,15 @@ export async function loadProfitSummary(opts: LoadOptions & {
   const wasCached = !opts.force && freshEntry(`${opts.from}|${opts.until}`) !== null;
   const entry = await loadRawData(opts);
   const metaByDay = aggregateMetaByDay(entry.metaRows);
+  const range = { from: opts.from, until: opts.until };
   const summary = computeProfit({
     payments: entry.payments,
     metaByDay,
-    range: { from: opts.from, until: opts.until },
+    range,
     pgFeeRate: opts.pgFeeRate,
     reportCostPerUnit: opts.reportCostPerUnit,
+    extraAdByDay: manualByDay(SEEDING_AD_COSTS, range),
+    extraReportCostByDay: manualByDay(AI_API_PAYMENTS, range),
   });
   return { summary, metaError: entry.metaError, cached: Boolean(wasCached) };
 }

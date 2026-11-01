@@ -41,7 +41,7 @@ const COLORS: Record<Theme, Record<ChannelGroup, string>> = {
 const TIPS = {
   roas: "메타 광고로 들어온 고객의 실제 결제액(토스) ÷ 메타 광고비. 결제 직전 마지막 유입 경로(UTM) 기준이에요.",
   aroas: "메타 광고로 들어와 처음 결제한 고객의 결제액 ÷ 메타 광고비. 광고가 새 고객을 데려오는 효율이에요(aMER). 7월 하순 이전 결제 기록은 Mixpanel에 없어서, 그때 산 고객의 재구매는 신규로 잡힐 수 있어요.",
-  mer: "전체 매출 ÷ 메타 광고비. 네이버 검색·인스타 프로필 같은 광고 외 매출도 포함돼서 광고 성과보다 높게 나와요. 네이버 검색광고비는 아직 연동되지 않아 광고비에 빠져 있어요.",
+  mer: "전체 매출 ÷ 광고비(메타 + 인플루언서 시딩). 네이버 검색·인스타 프로필 같은 광고 외 매출도 포함돼서 광고 성과보다 높게 나와요. 네이버 검색광고비는 아직 연동되지 않아 광고비에 빠져 있어요.",
   ncac: "메타 광고비 ÷ 메타로 들어온 신규 구매자 수. 새 고객 1명을 데려오는 데 든 비용이에요.",
   pixel: "메타 광고관리자가 자체 집계한 구매액 ÷ 광고비(광고관리자 ROAS와 같은 값). 7일 클릭·1일 조회 기준이라 실제보다 크게 잡히고, 결제일이 아니라 광고를 본 날에 매출을 붙여서 최근 며칠은 숫자가 계속 올라가요.",
   cov: "결제 중 유입 채널을 확인한 비율. 결제 이벤트에 UTM이 없으면 결제 전 7일 방문기록으로 복원해요.",
@@ -216,7 +216,7 @@ function Hero({ cur, prev: prevPeriod, mode, colors }: { cur: ChannelPeriod; pre
         )}
         <p className="max-w-prose border-t border-gray-100 pt-3.5 text-sm leading-relaxed text-gray-600 dark:border-zinc-800 dark:text-zinc-300">
           이 기간 매출의 <b className="text-gray-900 dark:text-zinc-100">{pct(share)}</b>가 메타 광고에서 나왔어요.{" "}
-          {cur.mer != null && cur.metaRoas != null && (
+          {cur.mer != null && cur.metaRoas != null && cur.mer > cur.metaRoas && (
             <>전체 매출로 계산한 MER은 <b className="text-gray-900 dark:text-zinc-100">{pct(cur.mer)}</b>지만, 메타 광고 매출만 보면{" "}
               <b className="text-gray-900 dark:text-zinc-100">{pct(cur.metaRoas)}</b>로 {(cur.mer - cur.metaRoas).toFixed(0)}%p 낮아요.{" "}</>
           )}

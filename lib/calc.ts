@@ -8,7 +8,9 @@
  *   PG수수료(pgFee)          = 결제매출(VAT 포함 실제 결제금액) × 요율(결제일별: ~6/18 3.52% 일괄 / 6/19~ 결제수단별)
  *                              (PG 는 결제금액 전체에 요율을 매김. 토스 정산: payOutAmount = amount − fee.
  *                               수수료 부가세는 매입세액공제 대상이라 원가에 넣지 않음 — 2026-09-08 수정)
- *   리포트 생성원가          = 결제완료 건수 × 건당원가(결제일별: ~2026-04 250 / 2026-05 266 / 2026-06 390 / 2026-07 870 / 2026-08 750 / 2026-09 1590 / 2026-10~ 1752 / 2026-10-10 19:11~ 561 Luna)
+ *   리포트 생성원가          = 결제완료 건수 × 건당원가(결제일별: ~2026-04 250 / 2026-05 266 / 2026-06 390 / 2026-07 870 / 2026-08 750 / 2026-09 1590)
+ *                              2026-10~ 는 건당 0원 + Claude·OpenAI API 실제 결제액(lib/manual-costs.ts, 말일 1건)
+ *   광고비                   = 메타 지출 + 시딩비(lib/manual-costs.ts). 시딩비는 메타 캠페인·채널 ROAS 에는 안 섞음
  *   ROAS                     = 결제매출(VAT 포함) / 광고비 × 100
  *   손익분기 ROAS (BEP)      = 결제매출(VAT포함) / 손익분기광고비 × 100 (원가구조 기반 동적)
  *      손익분기광고비          = VAT제외매출 - PG - 리포트원가 (공헌이익 0 이 되는 광고비)
@@ -99,35 +101,22 @@ export const BREAK_EVEN_ROAS_FALLBACK = 118;  // 매출이 원가(PG+리포트)�
  *   OpenAI 는 platform.openai.com 사용액(VAT 미청구) × 월평균 ECB 환율 ÷ 결제 건수(질문권 포함).
  *   2026-08    : 750  (Claude $918.57 + OpenAI $417.30, 환율 1,402.99 ÷ 2,663건 = 752원)
  *   2026-09    : 1590 (Claude $3,137.28 + OpenAI $487.73, 환율 1,358.41 ÷ 3,366건 = 1,590원)
- *   2026-10~   : 1752 (10/5~10/9 UTC 일별 청구 실측, 토스 결제 964건: Claude $975.43 + OpenAI $166.22
- *                      = $1,141.65 × 1.1(VAT) × 1,344.6 ÷ 964 = 1,752원. 10/5 반나절 측정치 1,590원 대체)
+ *   2026-10~   : 0    (사장님 결정 2026-11-02: 리포트 생성원가 = Claude·OpenAI API 실제 결제액만, 나머지는 크레딧.
+ *                      결제액은 lib/manual-costs.ts AI_API_PAYMENTS 로 그달 말일에 한 건씩 더한다)
  */
 export const REPORT_COST_PER_UNIT_2026_05 = 266;
 export const REPORT_COST_PER_UNIT_2026_06 = 390;
 export const REPORT_COST_PER_UNIT_2026_07 = 870;
 export const REPORT_COST_PER_UNIT_2026_08 = 750;
 export const REPORT_COST_PER_UNIT_2026_09 = 1590;
-export const REPORT_COST_PER_UNIT_2026_10 = 1752;
+export const REPORT_COST_API_PAYMENTS_FROM = "2026-10-01";
 
-/**
- * 2026-10-10 19:11 KST 운영 리포트 생성 모델 Claude → Luna 전환 (성수님 DM "루나 적용했습니다").
- * 전환 후 첫 구간 실측(10/11 09:00 ~ 10/12 18:00 KST, 토스 결제 209건, 상담도 Claude 에서 빠짐):
- *   OpenAI Luna(리포트·상담) $11.64 + OpenAI 이미지 $56.69 + Claude $0.15 = $68.48
- *   × 1.1(VAT) × 1,344.6 ÷ 209 = Luna 82 + 이미지 401 + Claude 1 ≈ 485원
- * 2026-10-19 재측정(UTC 10/11~15, 결제는 KST 09시 경계로 맞춤, 739건): OpenAI $281.35 + Claude 운영 키 $0.08
- *   × 1.1(VAT) × ECB 일별 환율 = 414,780원 ÷ 739 = 561원. 10/16~18 은 이미지 비용이 줄어 288원이지만
- *   이미지 추가 작업 예정이라 보수적으로 561원 유지(사장님 결정). 개발 서버 키(readmysaju-dev) 비용은 제외.
- */
-export const REPORT_COST_LUNA_FROM_MS = Date.parse("2026-10-10T19:11:00+09:00");
-export const REPORT_COST_PER_UNIT_LUNA = 561;
-
-/** 결제 시각까지 보는 건당 원가. 모델 전환처럼 하루 중간에 바뀌는 단가는 여기서만 갈린다. */
+/** 결제 시각까지 보는 건당 원가. 하루 중간에 단가가 바뀌는 구간이 생기면 여기서 가른다. */
 export function reportCostPerUnitAt(
   date: string,
-  atMs: number,
+  _atMs: number,
   base: number = DEFAULT_REPORT_COST_PER_UNIT,
 ): number {
-  if (atMs >= REPORT_COST_LUNA_FROM_MS) return REPORT_COST_PER_UNIT_LUNA;
   return reportCostPerUnitForDate(date, base);
 }
 
@@ -135,7 +124,7 @@ export function reportCostPerUnitForDate(
   date: string,
   base: number = DEFAULT_REPORT_COST_PER_UNIT,
 ): number {
-  if (date >= "2026-10-01") return REPORT_COST_PER_UNIT_2026_10;
+  if (date >= REPORT_COST_API_PAYMENTS_FROM) return 0;
   if (date >= "2026-09-01") return REPORT_COST_PER_UNIT_2026_09;
   if (date >= "2026-08-01") return REPORT_COST_PER_UNIT_2026_08;
   if (date >= "2026-07-01") return REPORT_COST_PER_UNIT_2026_07;
