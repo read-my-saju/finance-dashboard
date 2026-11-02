@@ -476,8 +476,6 @@ export default function Dashboard() {
         setFrom={setFrom} setUntil={setUntil}
         loading={loading}
         onRefresh={() => load(true)}
-        includeMarketing={includeMarketing}
-        onToggleMarketing={toggleMarketing}
         onLogout={async () => {
           await fetch("/api/auth", { method: "DELETE" });
           location.href = "/login";
@@ -495,6 +493,8 @@ export default function Dashboard() {
       <KpiStrip
         totals={summary?.totals}
         adBreakdown={summary?.adBreakdown}
+        includeMarketing={includeMarketing}
+        onToggleMarketing={toggleMarketing}
         sourceNetRevenue={sourceNetRevenue}
         daily={daily?.daily ?? []}
         prev={prevTotals}
@@ -662,12 +662,11 @@ function adSpendSubText(ab: AdBreakdown | undefined): string | undefined {
 }
 
 function FilterBar({
-  from, until, setFrom, setUntil, loading, onRefresh, onLogout, includeMarketing, onToggleMarketing,
+  from, until, setFrom, setUntil, loading, onRefresh, onLogout,
 }: {
   from: string; until: string;
   setFrom: (s: string) => void; setUntil: (s: string) => void;
   loading: boolean; onRefresh: () => void; onLogout: () => void;
-  includeMarketing: boolean; onToggleMarketing: () => void;
 }) {
   return (
     <div className="mb-6 flex flex-wrap items-center gap-2">
@@ -684,21 +683,6 @@ function FilterBar({
       <button type="button" onClick={() => { setFrom("2026-01-01"); setUntil(todayStr()); }} className={filterBtnCls}>전체 기간</button>
       <button type="button" onClick={() => { setFrom(daysAgo(29)); setUntil(todayStr()); }} className={filterBtnCls}>최근 30일</button>
       <button type="button" onClick={() => { setFrom(daysAgo(6)); setUntil(todayStr()); }} className={filterBtnCls}>최근 7일</button>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={includeMarketing}
-        onClick={onToggleMarketing}
-        title="켜면 시딩·브랜딩 비용(그 달 일수로 나눔)을 광고비에 더해 월말 종합 손익으로 봅니다. 끄면 메타 + 네이버 광고비만으로 매일 광고 효율을 봅니다."
-        className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${includeMarketing
-          ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
-          : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"}`}
-      >
-        <span aria-hidden="true" className={`relative inline-block h-4 w-7 rounded-full transition-colors ${includeMarketing ? "bg-violet-500" : "bg-gray-300 dark:bg-zinc-600"}`}>
-          <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${includeMarketing ? "left-3.5" : "left-0.5"}`} />
-        </span>
-        시딩·브랜딩 포함
-      </button>
       <div className="grow" />
       <button type="button" onClick={onRefresh} disabled={loading}
         className="flex items-center gap-2 rounded-lg bg-portone px-4 py-2 text-sm font-medium text-white hover:bg-portone-600 disabled:opacity-50">
@@ -766,10 +750,12 @@ function CollapsibleCard({
 // ────────────────────────────────────────────────────────────────────────────
 
 function KpiStrip({
-  totals, adBreakdown, sourceNetRevenue, daily, prev, pal,
+  totals, adBreakdown, includeMarketing, onToggleMarketing, sourceNetRevenue, daily, prev, pal,
 }: {
   totals?: ProfitTotals;
   adBreakdown?: AdBreakdown;
+  includeMarketing: boolean;
+  onToggleMarketing: () => void;
   sourceNetRevenue: number;
   daily: DailyRow[];
   prev: PrevTotals | null;
@@ -816,6 +802,7 @@ function KpiStrip({
         deltaInverse
         sparkData={finishedDaily.map((d) => d.adSpend)}
         subText={adSpendSubText(adBreakdown)}
+        action={<MarketingSwitch on={includeMarketing} onToggle={onToggleMarketing} />}
         pal={pal}
       />
       <KpiCard
@@ -859,8 +846,32 @@ function DeltaBadge({ delta, deltaInverse }: { delta: number | null; deltaInvers
   );
 }
 
+/**
+ * 광고비 카드 안의 '시딩·브랜딩' 스위치. 켜면 시딩·브랜딩 비용(그 달 일수로 나눔)이 광고비에 들어가고
+ * MER·공헌이익·일별 차트·채널 성과 MER 도 같이 바뀐다. 끄면 메타 + 네이버 광고비만 (매일 광고 효율용).
+ */
+function MarketingSwitch({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={onToggle}
+      title="켜면 시딩·브랜딩 비용(그 달 일수로 나눔)을 광고비에 포함합니다. MER·공헌이익도 같이 바뀝니다."
+      className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${on
+        ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
+        : "border-gray-200 text-gray-500 hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"}`}
+    >
+      <span aria-hidden="true" className={`relative inline-block h-3 w-5 rounded-full transition-colors ${on ? "bg-violet-500" : "bg-gray-300 dark:bg-zinc-600"}`}>
+        <span className={`absolute top-0.5 h-2 w-2 rounded-full bg-white transition-all ${on ? "left-2.5" : "left-0.5"}`} />
+      </span>
+      시딩·브랜딩
+    </button>
+  );
+}
+
 function KpiCard({
-  label, value, delta, deltaInverse, sparkData, subText, pal,
+  label, value, delta, deltaInverse, sparkData, subText, action, pal,
 }: {
   label: string;
   value: number;
@@ -868,13 +879,17 @@ function KpiCard({
   deltaInverse?: boolean;        // 광고비/수수료처럼 "줄어드는 게 좋은" 지표는 색 반전
   sparkData: number[];
   subText?: string;
+  action?: React.ReactNode;      // 라벨 오른쪽 작은 버튼 (광고비 카드의 시딩·브랜딩 스위치)
   pal: ChartPalette;
 }) {
   const sparkPoints = sparkData.map((v, i) => ({ x: i, y: v }));
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700">
-      <div className="text-xs font-medium text-gray-500 dark:text-zinc-400">{label}</div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="text-xs font-medium text-gray-500 dark:text-zinc-400">{label}</div>
+        {action}
+      </div>
       <div className="mt-1.5 text-2xl font-bold tabular-nums tracking-tight text-gray-900 dark:text-zinc-100">
         {fmtKrw(value)}
       </div>
