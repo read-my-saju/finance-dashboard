@@ -56,7 +56,8 @@ export function checkPassword(input: string): boolean {
 }
 
 export async function isAuthed(): Promise<boolean> {
-  const c = cookies().get(COOKIE_NAME);
+  // 1102: Next 15 에서 cookies() 가 비동기라 await 필요
+  const c = (await cookies()).get(COOKIE_NAME);
   return verifyToken(c?.value);
 }
 
