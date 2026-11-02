@@ -84,6 +84,8 @@ export type ChannelPeriod = {
   coverage: number | null;
   restoredCount: number;
   unattributedCount: number;
+  // 인플루언서 할인 링크 결제 중 결제 전 메타 광고 클릭이 있어 메타 캠페인에 넣은 것
+  discountViaMeta: { n: number; rev: number };
   groups: ChannelGroupRow[];
   daily: ChannelDaily[];
   sets: SetSales;
@@ -98,6 +100,7 @@ type Tagged = {
   restored: boolean;
   set: string | null;
   user?: string;
+  viaDiscount?: boolean;
 };
 
 type Range = { from: string; until: string };
@@ -229,6 +232,7 @@ export function buildChannelPeriod(args: {
     extraReportCostByDay: spreadByMonth(AI_API_PAYMENTS, range),
   }).totals;
   const restored = computeProfit({ payments: tagged.filter((t) => t.restored).map((t) => t.p), metaByDay: [], range }).totals;
+  const viaDiscount = computeProfit({ payments: tagged.filter((t) => t.viaDiscount).map((t) => t.p), metaByDay: [], range }).totals;
   const meta = groups[0];
   const unattributed = groups.find((g) => g.group === "unattributed")!;
   // 메타 주장 상한은 '전체 매출 ÷ 메타 광고비'로 자른다(시딩비를 넣은 MER 로 자르면 상한이 부당하게 낮아짐).
@@ -250,6 +254,7 @@ export function buildChannelPeriod(args: {
     coverage: total.netRevenue > 0 ? ((total.netRevenue - unattributed.rev) / total.netRevenue) * 100 : null,
     restoredCount: restored.reportCount,
     unattributedCount: unattributed.n,
+    discountViaMeta: { n: viaDiscount.reportCount, rev: viaDiscount.netRevenue },
     groups,
     daily,
     sets: buildSetSales(tagged, meta.children, range),

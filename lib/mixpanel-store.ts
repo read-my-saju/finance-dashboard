@@ -21,7 +21,7 @@ import { isKvEnabled, kv } from "./kv";
 import { fetchPurchaseAttributions, MixpanelConfigError } from "./mixpanel";
 import type { PurchaseAttribution } from "./channel";
 
-const KEY_PREFIX = "mx:attr:v4:"; // v4: 2026-10-23 report_type(세트 구분) 추가로 전 기간 재조회. v3: 10/19 lastTouch
+const KEY_PREFIX = "mx:attr:v5:"; // v5: 2026-11-03 할인 링크 utm_term·결제 전 메타 광고 클릭(viaMeta). v4: 10/23 report_type. v3: 10/19 lastTouch
 const LOCK_KEY = "mx:attr:lock";
 const LOCK_MS = 60_000;
 const LOCK_WAIT_MS = 20_000;

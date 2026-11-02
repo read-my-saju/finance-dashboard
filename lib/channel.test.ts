@@ -9,7 +9,7 @@
 import assert from "node:assert/strict";
 import { classifyChannel, type CampaignRef, type PurchaseAttribution } from "./channel";
 import { buildChannelPeriod, campaignRefs, metaRoasRange } from "./channel-revenue";
-import { lastTouch, onePerTx, type Touch } from "./mixpanel";
+import { lastTouch, metaAdTouch, onePerTx, type Touch } from "./mixpanel";
 import { commonCampaignWords, shortCampaignName } from "./campaign-name";
 import { parseUrlTags, type AdTagRef } from "./meta";
 import { setNameOf } from "./sets";
@@ -95,10 +95,34 @@ assert.equal(t({ src: "ig", med: "paid", camp: CAMPAIGNS[0].id }).campaignId, CA
 const PS: AdTagRef[] = [...TAGS, { campaignId: SEED4.id, campaignName: SEED4.name, camp: "pu_264Q_ps_pa_life_vid261014", cont: "" }];
 assert.equal(classifyChannel({ ...base, src: "ig", med: "inf", camp: "pu_264Q_ps_pa_life_vid261014" }, LIVE, PS).campaignId, SEED4.id);
 assert.deepEqual(classifyChannel({ ...base, src: "ig", med: "inf", camp: "pu_264Q_ps_fr_life_vid261002" }, LIVE, PS), { group: "influencer", detail: "pu_264Q_ps_fr_life_vid261002" });
-assert.deepEqual(classifyChannel({ ...base, src: "fbig", med: "inf", camp: "pu", cont: "discount_percent", inf: "263Q_SS2" }, LIVE, PS), { group: "influencer", detail: "할인 링크 263Q_SS2" });
+assert.deepEqual(classifyChannel({ ...base, src: "fbig", med: "inf", camp: "pu", cont: "discount_percent", inf: "263Q_SS2" }, LIVE, PS), { group: "influencer", detail: "죠대리" });
 // 카카오 메시지·채널 링크는 자사 SNS
 assert.deepEqual(c({ src: "kko", med: "ms", camp: "pu", cont: "discount_percent" }), { group: "owned", detail: "카카오 메시지" });
 assert.deepEqual(c({ src: "kakao", med: "profile", camp: "br_bio__text_261005", cont: "home" }), { group: "owned", detail: "카카오 채널" });
+
+// ── 인플루언서 할인 링크 (2026-11-03): 이름은 콘솔 목록, 결제 전 메타 광고 클릭이 있으면 그 메타 캠페인 ──
+const SEED3: CampaignRef = { id: "120253569843420722", name: "26_3Q_시딩_sales_rebranding_판매_260814" };
+const dl = (p: Partial<PurchaseAttribution>) => classifyChannel({ ...base, src: "fbig", med: "inf", camp: "pu", cont: "discount_percent", ...p }, [SEED3, ...LIVE], TAGS);
+assert.deepEqual(dl({ inf: "263Q_SS2" }), { group: "influencer", detail: "죠대리" });
+assert.deepEqual(dl({ inf: "264Q_IG2", term: "264qs4" }), { group: "influencer", detail: "홍이콩이" });
+assert.deepEqual(dl({ term: "264qs_rpp" }), { group: "influencer", detail: "리포포" }, "할인 코드 없이 링크 추적값만 (토큰 유실)");
+assert.deepEqual(dl({ inf: "new_code_x" }), { group: "influencer", detail: "할인 링크 new_code_x" }, "콘솔 목록에 없으면 코드 그대로");
+assert.deepEqual(classifyChannel({ ...base, src: "ziwooney", med: "influencer", camp: "263Q_SS1", cont: "direct" }, LIVE), { group: "influencer", detail: "263Q_SS1" }, "8월 초기 링크 utm_medium=influencer");
+// 시딩 광고 → 댓글 → DM 할인 링크 → 결제: 결제 전 메타 광고 클릭이 있으면 그 캠페인 (인플루언서에서 빠짐)
+assert.deepEqual(dl({ inf: "263Q_SS2", viaMeta: { src: "ig", med: "paid", camp: SEED3.id, cont: "120254058732340722" } }),
+  { group: "meta", detail: SEED3.name, campaignId: SEED3.id, viaDiscount: true });
+assert.equal(dl({ inf: "264Q_IG4", viaMeta: { src: "fbig", med: "ig_meta", camp: "264QS", cont: "lire_slpp" } }).campaignId, SEED4.id, "광고 URL 태그로도");
+assert.deepEqual(dl({ inf: "263Q_SS2", viaMeta: { src: "naver", med: "cpc", camp: "brand" } }), { group: "influencer", detail: "죠대리" }, "메타가 아닌 방문이면 인플루언서 그대로");
+// 카카오 메시지 할인(263Q_p 푸리 고객)은 할인 코드가 있어도 자사 SNS
+assert.deepEqual(c({ src: "kko", med: "ms", camp: "pu", cont: "discount_percent", inf: "263Q_p" }), { group: "owned", detail: "카카오 메시지" });
+
+// 결제 전 7일 안 메타 광고 방문 찾기: DM 링크 방문·fbclid 만·8일 전 방문은 제외
+const D = 86_400_000, T = Date.parse("2026-10-20T12:00:00+09:00");
+const tch = (dt: number, src: string | null, med: string | null, camp: string | null, fb: 0 | 1 = 0): Touch => [T - dt, src, med, camp, null, fb, null];
+assert.equal(metaAdTouch([tch(2 * D, "ig", "paid", SEED3.id), tch(D, "fbig", "inf", "pu"), tch(0.5 * D, null, null, null, 1)], T)?.[3], SEED3.id, "마지막 메타 광고 방문");
+assert.equal(metaAdTouch([tch(8 * D, "ig", "paid", SEED3.id)], T), undefined, "7일 넘으면 제외");
+assert.equal(metaAdTouch([tch(D, "fbig", "inf", "pu"), tch(0.2 * D, null, null, null, 1)], T), undefined, "DM 링크·fbclid 만이면 없음");
+assert.equal(metaAdTouch([tch(-D, "ig", "paid", SEED3.id)], T), undefined, "결제 뒤 방문은 제외");
 
 // url_tags 파싱: 전체 URL 이 들어간 칸도 '?' 뒤만, 매크로 캠페인은 ID 매칭이 처리하므로 제외
 assert.deepEqual(parseUrlTags("utm_source=fbig&utm_medium=ig_meta&utm_campaign=264QS&utm_content=lire_slpp"), { camp: "264QS", cont: "lire_slpp" });
@@ -114,7 +138,7 @@ assert.deepEqual(c({ src: "meta", med: "profile", camp: "br_bio_fb_text_260827",
 
 // 인플루언서 할인 링크 (utm_source=fbig 이어도 메타가 아님)
 assert.deepEqual(c({ src: "fbig", med: "inf", camp: "pu", cont: "discount_percent", inf: "263Q_SS2" }),
-  { group: "influencer", detail: "할인 링크 263Q_SS2" });
+  { group: "influencer", detail: "죠대리" });
 
 // 내부 테스트
 assert.equal(c({ src: "claudetest", med: "paid", camp: "utm_probe" }).group, "unattributed");
@@ -180,6 +204,22 @@ const withMk = buildChannelPeriod({
 });
 assert.equal(Math.round(withMk.mer!), Math.round(89_600 / (50_000 + 3_800_000 / 31) * 100));
 assert.equal(Math.round(withMk.metaRoas!), Math.round(59_800 / 50_000 * 100), "메타 ROAS 에는 안 섞임");
+// 할인 링크 결제 중 메타 광고 경유는 메타 캠페인 매출로, 건수·금액은 각주용으로 따로
+const dlp = buildChannelPeriod({
+  payments: [pay("x", 26_910), pay("y", 26_910)],
+  metaRows: [metaRow(CAMPAIGNS[1].id, 40_000, 50_000)],
+  attributions: new Map([
+    attr("x", { src: "fbig", med: "inf", camp: "pu", inf: "263Q_SS2", viaMeta: { src: "ig", med: "paid", camp: CAMPAIGNS[1].id } }),
+    attr("y", { src: "fbig", med: "inf", camp: "pu", inf: "263Q_SS2" }),
+  ]),
+  campaigns: CAMPAIGNS,
+  range,
+});
+assert.deepEqual(dlp.discountViaMeta, { n: 1, rev: 26_910 });
+assert.equal(dlp.groups.find((x) => x.group === "meta")!.children.find((x) => x.campaignId === CAMPAIGNS[1].id)!.rev, 26_910, "캠페인 매출에 포함");
+assert.equal(dlp.groups.find((x) => x.group === "influencer")!.children[0].name, "죠대리");
+assert.equal(dlp.groups.find((x) => x.group === "influencer")!.rev, 26_910);
+
 // 네이버 검색광고비(손으로 넣은 월 소진액, 9월 44,029원 일할)는 '검색광고' 행과 MER 분모에만 들어간다
 const sep = { from: "2026-09-01", until: "2026-09-30" };
 const naver = buildChannelPeriod({

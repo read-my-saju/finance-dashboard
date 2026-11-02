@@ -66,7 +66,7 @@ function kstStartMs(ymd: string): number {
 
 type RawPurchase = {
   t: number; d: string; tx?: string; rt?: string;
-  src?: string; med?: string; camp?: string; cont?: string; inf?: string;
+  src?: string; med?: string; camp?: string; cont?: string; inf?: string; term?: string;
 };
 export type Touch = [number, string | null, string | null, string | null, string | null, 0 | 1, string | null];
 type TouchState = { touch: Touch[]; apps: Array<[number, "IG" | "FB" | "KAKAO" | "NAVER"]> };
@@ -74,10 +74,13 @@ type TouchState = { touch: Touch[]; apps: Array<[number, "IG" | "FB" | "KAKAO" |
 const PURCHASES_JQL = (from: string, to: string) => `function main(){
   return Events({from_date:'${from}',to_date:'${to}',event_selectors:[{event:'s2s_purchase_verified'}]})
   .map(function(e){var p=e.properties;return {t:e.time,d:e.distinct_id,tx:p.transaction_id,rt:p.report_type,
-    src:p.utm_source,med:p.utm_medium,camp:p.utm_campaign,cont:p.utm_content,inf:p.influencer_code};});
+    src:p.utm_source,med:p.utm_medium,camp:p.utm_campaign,cont:p.utm_content,inf:p.influencer_code,term:p.utm_term};});
 }`;
 
 const hasUtm = (r: RawPurchase) => Boolean(r.src || r.camp || r.inf || r.med);
+// 인플루언서 할인 링크 결제 (카카오 메시지 할인은 자사 링크라 제외). 결제 전 메타 광고 클릭을 찾아본다.
+const isDiscountLink = (r: RawPurchase) =>
+  Boolean(r.inf || /^(inf|influencer)$/i.test(r.med || "")) && !/^(kko|kakao)$/i.test(r.src || "");
 
 /**
  * 같은 transaction_id 이벤트가 재전송돼 여럿이면 하나만 남긴다: UTM 있는 것 → 가장 이른 것.
@@ -110,6 +113,14 @@ export function lastTouch(sorted: Touch[]): Touch | undefined {
   const last = sorted[sorted.length - 1];
   if (!last || !fbclidOnly(last)) return last;
   return sorted.filter(isMetaUtm).pop() || last;
+}
+
+/** 결제 시각 전 7일 안 마지막 메타 광고 utm 방문. fbclid 만 남은 방문은 광고인지 몰라 안 쓴다. */
+export function metaAdTouch(touches: Touch[], t: number): Touch | undefined {
+  return touches
+    .filter((x) => x[0] <= t && x[0] >= t - LOOKBACK_DAYS * DAY_MS && isMetaUtm(x))
+    .sort((a, b) => a[0] - b[0])
+    .pop();
 }
 
 const userSet = (users: string[]) => JSON.stringify(Object.fromEntries(users.map((u) => [u, 1])));
@@ -148,7 +159,8 @@ export async function fetchPurchaseAttributions(from: string, until: string): Pr
   if (raw.length === 0) return [];
 
   const users = Array.from(new Set(raw.map((r) => r.d)));
-  const untagged = Array.from(new Set(raw.filter((r) => !hasUtm(r)).map((r) => r.d)));
+  // 방문 기록을 볼 사람: UTM 없는 결제자(마지막 유입 복원) + 할인 링크 결제자(결제 전 메타 광고 클릭 확인)
+  const untagged = Array.from(new Set(raw.filter((r) => !hasUtm(r) || isDiscountLink(r)).map((r) => r.d)));
 
   const [buysRows, touchRows] = await Promise.all([
     jql<Array<{ key: [string]; value: number[] }>>(BUYS_JQL(users, utcTo)),
@@ -163,11 +175,16 @@ export async function fetchPurchaseAttributions(from: string, until: string): Pr
     // 1분 여유: 같은 결제의 클라이언트 이벤트(purchase_verified)가 몇 초 앞서 찍히는 경우 재구매로 오판 방지.
     const isNew = !(buys.get(r.d) || []).some((t) => t < r.t - 60_000);
     const base = { tx: r.tx!, user: r.d, ts: r.t, isNew, rt: r.rt };
-    if (hasUtm(r)) {
-      return { ...base, how: "utm", src: r.src, med: r.med, camp: r.camp, cont: r.cont, inf: r.inf };
-    }
     const st = touches.get(r.d);
     const inWindow = (t: number) => t <= r.t && t >= r.t - LOOKBACK_DAYS * DAY_MS;
+    if (hasUtm(r)) {
+      const utm = { ...base, how: "utm" as const, src: r.src, med: r.med, camp: r.camp, cont: r.cont, inf: r.inf, term: r.term };
+      if (!isDiscountLink(r)) return utm;
+      const ad = metaAdTouch(st?.touch || [], r.t);
+      return ad
+        ? { ...utm, viaMeta: { src: ad[1] || undefined, med: ad[2] || undefined, camp: ad[3] || undefined, cont: ad[4] || undefined } }
+        : utm;
+    }
     const last = lastTouch((st?.touch || []).filter((x) => inWindow(x[0])).sort((a, b) => a[0] - b[0]));
     if (last) {
       return {
