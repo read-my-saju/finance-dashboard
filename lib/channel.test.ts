@@ -11,6 +11,7 @@ import { classifyChannel, type CampaignRef, type PurchaseAttribution } from "./c
 import { buildChannelPeriod, campaignRefs, metaRoasRange } from "./channel-revenue";
 import { lastTouch, onePerTx, type Touch } from "./mixpanel";
 import { commonCampaignWords, shortCampaignName } from "./campaign-name";
+import { parseUrlTags, type AdTagRef } from "./meta";
 import { setNameOf } from "./sets";
 import { buildRecords, daysBetween, isFinal, planFetch, splitByDay, withFallbackBudget, type DayRecord } from "./mixpanel-store";
 
@@ -45,7 +46,7 @@ assert.equal(c({ src: "fbig", med: "bnr", camp: "4Q_lo", cont: "ex_mi" }).campai
 assert.equal(c({ src: "fbig", med: "meta", camp: "264QS", cont: "lv_re_hj" }).campaignId, CAMPAIGNS[3].id);
 assert.equal(c({ src: "fbig", med: "img", camp: "4Q_ny", cont: "ny_prof" }).campaignId, CAMPAIGNS[5].id);
 // 키워드 캠페인이 목록에 없으면 키워드 이름으로 메타에 남김
-assert.deepEqual(classifyChannel({ ...base, src: "ig", camp: "pu_3Q_lo_x" }, []), { group: "meta", detail: "연애운" });
+assert.deepEqual(classifyChannel({ ...base, src: "ig", camp: "pu_3Q_lo_x" }, []), { group: "meta", detail: "연애" });
 // 키워드 매칭은 최근 집행 캠페인으로 — 전체 기간이면 4월 옛 연애운 캠페인이 같이 들어옴 (2026-10-19 운영 화면)
 const refs = campaignRefs([
   { date: "2026-04-24", campaignId: "100", campaignName: "260424 연애운 랜딩페이지 수정", spend: 5000 },
@@ -67,6 +68,32 @@ assert.equal(classifyChannel({ ...base, src: "ig", camp: "pu_3Q_lo_rl_vid_bnr_29
 assert.equal(classifyChannel({ ...base, src: "ig", camp: "pu_4Q_lo_pf_aut_vid_261012" }, refs).campaignId, CAMPAIGNS[3].id);
 // 목록에 없는 캠페인 ID → 메타(캠페인 불명)
 assert.deepEqual(c({ src: "ig", med: "paid", camp: "120299999999999999" }), { group: "meta", detail: "캠페인 불명" });
+
+// 광고 url_tags 표 (2026-11-02 광고관리자 실측): 264QS 를 연애(dohwa.lin)·4Q시딩(leepopo) 두 캠페인이 utm_content 만 달리 씀
+const LOVE: CampaignRef = { id: "120253113163290722", name: "26_3Q_연애_sales_rebranding_판매" };
+const SEED4: CampaignRef = { id: "120254716042090722", name: "26_4Q_시딩_Sales_rebranding_판매" };
+const LIVE = [SEED4, CAMPAIGNS[0], LOVE]; // 최근 집행 순
+const TAGS: AdTagRef[] = [
+  { campaignId: LOVE.id, camp: "264QS", cont: "lv_re_hj" },
+  { campaignId: SEED4.id, camp: "264QS", cont: "lire_slpp" },
+];
+const t = (p: Partial<PurchaseAttribution>) => classifyChannel({ ...base, ...p }, LIVE, TAGS);
+assert.equal(t({ src: "fbig", med: "ig_meta", camp: "264QS", cont: "lire_slpp" }).campaignId, SEED4.id, "leepopo → 4Q시딩");
+assert.equal(t({ src: "fbig", med: "meta", camp: "264QS", cont: "lv_re_hj" }).campaignId, LOVE.id, "dohwa.lin → 연애");
+assert.equal(t({ src: "fbig", camp: "264QS", cont: "new_one" }).campaignId, SEED4.id, "utm_content 가 표에 없으면 같은 utm_campaign 중 최근 집행");
+// 표에 없는 태그는 이름 키워드 — 이름이 '…_연애_…' 로 바뀌어도 연애
+assert.equal(t({ src: "ig", med: "display", camp: "pu_3Q_lo_situ_vid_bnr_290920" }).campaignId, LOVE.id);
+// 표가 비어 있으면(받기 실패) 키워드 규칙
+assert.equal(classifyChannel({ ...base, src: "fbig", camp: "264QS", cont: "lire_slpp" }, LIVE).campaignId, LOVE.id);
+// 캠페인 ID 는 표보다 먼저
+assert.equal(t({ src: "ig", med: "paid", camp: CAMPAIGNS[0].id }).campaignId, CAMPAIGNS[0].id);
+
+// url_tags 파싱: 전체 URL 이 들어간 칸도 '?' 뒤만, 매크로 캠페인은 ID 매칭이 처리하므로 제외
+assert.deepEqual(parseUrlTags("utm_source=fbig&utm_medium=ig_meta&utm_campaign=264QS&utm_content=lire_slpp"), { camp: "264QS", cont: "lire_slpp" });
+assert.deepEqual(parseUrlTags("https://landing.pouri.kr/ko?utm_source=meta&utm_campaign=4Q_lo&utm_content=ex_mi"), { camp: "4Q_lo", cont: "ex_mi" });
+assert.equal(parseUrlTags("utm_source=meta&utm_medium=paid_social&utm_campaign={{campaign.id}}&utm_content={{ad.id}}"), null);
+assert.deepEqual(parseUrlTags("utm_campaign=264QS&utm_content={{ad.id}}"), { camp: "264QS", cont: "" });
+assert.equal(parseUrlTags(""), null);
 
 // 자사 SNS (오가닉 프로필 링크)
 assert.deepEqual(c({ src: "ig", med: "social", cont: "link_in_bio" }), { group: "owned", detail: "인스타 프로필" });
@@ -121,7 +148,8 @@ assert.equal(g("meta").spend, 50_000, "메타 광고비 = 계정 전체");
 assert.equal(g("meta").children.reduce((s, x) => s + x.spend, 0), 50_000, "캠페인 광고비 합 = 메타 광고비");
 assert.equal(g("meta").rev, 59_800);
 assert.equal(Math.round(period.metaRoas!), Math.round(59_800 / 50_000 * 100));
-assert.equal(Math.round(period.mer!), Math.round(89_600 / 50_000 * 100));
+// MER 분모 = 메타 + 10월 시딩 하루치(380만 ÷ 31일)
+assert.equal(Math.round(period.mer!), Math.round(89_600 / (50_000 + 3_800_000 / 31) * 100));
 assert.equal(Math.round(period.newCustomerRoas!), Math.round(29_900 / 50_000 * 100));
 assert.equal(period.newCustomerCac, 50_000);
 assert.equal(Math.round(period.pixelRoas!), 140);
@@ -129,6 +157,20 @@ assert.equal(g("search").rev, 19_900);
 assert.equal(period.restoredCount, 1);
 assert.equal(period.unattributedCount, 1);
 assert.equal(Math.round(period.coverage! * 10), Math.round((89_600 - 9_900) / 89_600 * 1000));
+// 네이버 검색광고비(손으로 넣은 월 소진액, 9월 44,029원 일할)는 '검색광고' 행과 MER 분모에만 들어간다
+const sep = { from: "2026-09-01", until: "2026-09-30" };
+const naver = buildChannelPeriod({
+  payments: [{ ...pay("n", 29_900), paidAt: "2026-09-10T12:00:00+09:00" }],
+  metaRows: [],
+  attributions: new Map([attr("n", { src: "naver", med: "cpc", camp: "brand" })]),
+  campaigns: CAMPAIGNS,
+  range: sep,
+});
+const sa = naver.groups.find((x) => x.group === "search_ad")!;
+assert.equal(Math.round(sa.spend), 44_029, "검색광고 광고비 = 9월 소진액");
+assert.equal(Math.round(sa.roas!), Math.round((29_900 / 44_029) * 100));
+assert.equal(naver.groups.find((x) => x.group === "meta")!.spend, 0, "메타 행에는 안 섞임");
+assert.equal(Math.round(naver.adSpend), 44_029, "회사 전체 광고비에 포함");
 // ── 세트 판매: (report_type, 금액) 조합으로 구분 ─────────────────────────
 assert.equal(setNameOf("LIFE_REPORT_V3", 44_900), "인생+신년운세 세트");
 assert.equal(setNameOf("NEWYEAR_2027", 44_900), "인생+신년운세 세트", "신년 결제창에서 산 같은 세트");

@@ -6,7 +6,7 @@
  * 계산식은 lib/calc.ts 한 곳에만 있다 (README 규칙).
  *
  * 지표 정의 (2026-10-10 사장님 확정):
- *   MER                = 토스 전체 순매출 ÷ 광고비(메타 + 시딩, 2026-11-02~). 위 KPI 의 MER 과 같은 값
+ *   MER                = 토스 전체 순매출 ÷ 광고비(메타 + 시딩 + 네이버, 2026-11-02~). 위 KPI 의 MER 과 같은 값
  *   메타 귀속 ROAS      = 메타 광고로 귀속된 순매출 ÷ 메타 광고비
  *   신규 고객 ROAS(aMER) = 메타 귀속 매출 중 첫 결제 고객분 ÷ 메타 광고비
  *   nCAC               = 메타 광고비 ÷ 메타 귀속 첫 결제 건수
@@ -16,10 +16,10 @@
  *                          픽셀은 광고 본 날에 매출을 붙여 최근 며칠은 덜 찬 값이라 하한으로 쓰지 않는다.
  */
 import type { PortonePayment } from "./portone";
-import { aggregateMetaByDay, type MetaInsightRow } from "./meta";
+import { aggregateMetaByDay, type AdTagRef, type MetaInsightRow } from "./meta";
 import { computeProfit } from "./profit";
 import { calculateRoas } from "./calc";
-import { AI_API_PAYMENTS, SEEDING_AD_COSTS, manualByDay } from "./manual-costs";
+import { AI_API_PAYMENTS, NAVER_AD_COSTS, SEEDING_AD_COSTS, spreadByMonth } from "./manual-costs";
 import {
   classifyChannel,
   CHANNEL_LABEL,
@@ -102,8 +102,11 @@ type Tagged = {
 
 type Range = { from: string; until: string };
 
-function summarize(key: string, name: string, items: Tagged[], rows: MetaInsightRow[], range: Range, campaignId?: string): ChannelRow {
-  const all = computeProfit({ payments: items.map((t) => t.p), metaByDay: aggregateMetaByDay(rows), range }).totals;
+function summarize(
+  key: string, name: string, items: Tagged[], rows: MetaInsightRow[], range: Range, campaignId?: string,
+  extraSpendByDay: Array<{ date: string; spend: number }> = [],
+): ChannelRow {
+  const all = computeProfit({ payments: items.map((t) => t.p), metaByDay: aggregateMetaByDay(rows), range, extraAdByDay: extraSpendByDay }).totals;
   const fresh = computeProfit({ payments: items.filter((t) => t.isNew).map((t) => t.p), metaByDay: [], range }).totals;
   const pixel = rows.reduce((s, r) => s + r.purchaseValue, 0);
   return {
@@ -164,13 +167,14 @@ export function buildChannelPeriod(args: {
   metaRows: MetaInsightRow[];
   attributions: Map<string, PurchaseAttribution>;
   campaigns: CampaignRef[];
+  adTags?: AdTagRef[];
   range: Range;
 }): ChannelPeriod {
-  const { payments, metaRows, attributions, campaigns, range } = args;
+  const { payments, metaRows, attributions, campaigns, adTags = [], range } = args;
 
   const tagged: Tagged[] = payments.map((p) => {
     const a = p.orderId ? attributions.get(p.orderId) : undefined;
-    const ch = classifyChannel(a, campaigns);
+    const ch = classifyChannel(a, campaigns, adTags);
     return { p, ...ch, isNew: Boolean(a?.isNew), restored: a?.how === "touch", set: setNameOf(a?.rt, p.amount?.total), user: a?.user };
   });
 
@@ -193,7 +197,9 @@ export function buildChannelPeriod(args: {
     const childRows = Array.from(children.entries())
       .map(([key, c]) => summarize(key, c.name, c.items, c.campaignId ? metaRows.filter((r) => r.campaignId === c.campaignId) : [], range, c.campaignId))
       .sort((a, b) => b.rev - a.rev || b.spend - a.spend);
-    return { ...summarize(group, CHANNEL_LABEL[group], items, rows, range), group, children: childRows };
+    // 네이버 검색광고비는 손으로 넣은 월 소진액 (lib/manual-costs.ts). 링크별 하위 행에는 안 나눈다.
+    const extra = group === "search_ad" ? spreadByMonth(NAVER_AD_COSTS, range) : [];
+    return { ...summarize(group, CHANNEL_LABEL[group], items, rows, range, undefined, extra), group, children: childRows };
   });
 
   const dailyByGroup = new Map<ChannelGroup, { all: Map<string, number>; fresh: Map<string, number> }>();
@@ -213,13 +219,13 @@ export function buildChannelPeriod(args: {
     return { date, rev, newRev };
   });
 
-  // 회사 전체는 위 KPI 와 같은 숫자가 되도록 시딩비·API 결제액을 넣는다. 채널·캠페인 행에는 안 넣는다.
+  // 회사 전체는 위 KPI 와 같은 숫자가 되도록 시딩비·네이버·API 결제액을 넣는다. 시딩은 채널·캠페인 행에는 안 넣는다.
   const total = computeProfit({
     payments,
     metaByDay: aggregateMetaByDay(metaRows),
     range,
-    extraAdByDay: manualByDay(SEEDING_AD_COSTS, range),
-    extraReportCostByDay: manualByDay(AI_API_PAYMENTS, range),
+    extraAdByDay: [...spreadByMonth(SEEDING_AD_COSTS, range), ...spreadByMonth(NAVER_AD_COSTS, range)],
+    extraReportCostByDay: spreadByMonth(AI_API_PAYMENTS, range),
   }).totals;
   const restored = computeProfit({ payments: tagged.filter((t) => t.restored).map((t) => t.p), metaByDay: [], range }).totals;
   const meta = groups[0];

@@ -2,7 +2,7 @@
  * GET /api/dashboard/summary?from=YYYY-MM-DD&until=YYYY-MM-DD&force=1
  *
  * 응답:
- *   range, fetchedAt, settings, totals (광고 손익 KPI), metaError, cached
+ *   range, fetchedAt, settings, totals (광고 손익 KPI), adBreakdown (광고비 = 메타 + 시딩 + 네이버), metaError, cached
  *
  * lib/calc.ts 의 공식만 사용 — UI 에서 재계산 금지.
  */
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
   const reportCostPerUnit = readNumber(searchParams.get("reportCostPerUnit"), envReport);
 
   try {
-    const { summary, metaError, cached } = await loadProfitSummary({
+    const { summary, adBreakdown, metaError, cached } = await loadProfitSummary({
       from,
       until,
       force,
@@ -49,6 +49,7 @@ export async function GET(req: NextRequest) {
       fetchedAt: new Date().toISOString(),
       settings: summary.settings,
       totals: summary.totals,
+      adBreakdown,
       metaError,
       cached,
     });

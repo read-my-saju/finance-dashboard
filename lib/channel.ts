@@ -7,9 +7,12 @@
  *   3. 인앱 브라우저 흔적
  *   4. 미귀속
  *
- * 메타 캠페인은 utm_campaign 의 캠페인 ID 로 잇고, 수동 태그(pu_3Q_*·pu_4Q_*)는 캠페인 이름의 키워드로 찾는다.
+ * 메타 캠페인은 utm_campaign 의 캠페인 ID 로 잇는다. 수동 태그(264QS·pu_3Q_* 등)는 Meta 에서 받은 광고별 url_tags
+ * 표(utm_content 까지 같은 광고 → utm_campaign 만 같은 광고)로 찾고, 표에 없으면 캠페인 이름 키워드로 찾는다.
  * 캠페인 이름·ID 를 하드코딩하지 않는다 — Meta insights 에서 받은 목록을 넘겨받음.
  */
+
+import type { AdTagRef } from "./meta";
 
 export type ChannelGroup = "meta" | "search" | "search_ad" | "owned" | "influencer" | "referral" | "unattributed";
 
@@ -50,11 +53,12 @@ export type ChannelResult = {
   campaignId?: string;     // 메타 캠페인으로 확정된 경우
 };
 
-// 수동 UTM 태그 → 캠페인 이름 키워드. 메타 광고 URL 을 {{campaign.id}} 로 통일하면 필요 없어짐.
+// 수동 UTM 태그 → 캠페인 이름 키워드. 광고 url_tags 표에 없을 때만 쓰는 예비 규칙.
+// 이름 일부만 쓴다 — 연애 캠페인 이름이 '…연애운'에서 '26_3Q_연애_…'로 바뀌어 매칭이 끊겼다 (2026-11-02).
 const MANUAL_TAG_KEYWORD: Array<[RegExp, string]> = [
   [/^pu_3Q_job|^pu_3Q_sun_new_mg/i, "취업운"],
   // 10/22 새 소재는 pu_ 없이 4Q_lo·4Q_ny, dohwa.lin 파트너십은 264QS 로 들어옴
-  [/^(pu_)?[34]Q_lo|^264QS$/i, "연애운"],
+  [/^(pu_)?[34]Q_lo|^264QS$/i, "연애"],
   [/^pu_[34]Q_sun/i, "수능운"],
   [/^(pu_)?4Q_ny/i, "신년운"],
 ];
@@ -67,7 +71,19 @@ const SEARCH_AD_NAME: Record<string, string> = { naver: "네이버 파워링크"
 // 로그인·결제 중간 페이지 — 유입 경로가 아니므로 referrer 로 쓰지 않는다.
 const REDIRECT_REF = /(^|\.)nid\.naver\.com$|(^|\.)pay\.naver\.com$/;
 
-function byUtm(a: PurchaseAttribution, campaigns: CampaignRef[]): ChannelResult {
+/** 광고 url_tags 표로 캠페인 찾기. 여러 캠페인 광고에 같은 태그가 있으면 최근 집행 캠페인(campaigns 순서). */
+function byAdTag(camp: string, cont: string, campaigns: CampaignRef[], tags: AdTagRef[]): CampaignRef | undefined {
+  const same = tags.filter((t) => t.camp.toLowerCase() === camp.toLowerCase());
+  const exact = same.filter((t) => t.cont.toLowerCase() === cont.toLowerCase());
+  for (const pool of [exact, same]) {
+    const ids = new Set(pool.map((t) => t.campaignId));
+    const hit = campaigns.find((c) => ids.has(c.id));
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
+function byUtm(a: PurchaseAttribution, campaigns: CampaignRef[], tags: AdTagRef[]): ChannelResult {
   const src = (a.src || "").toLowerCase();
   const med = (a.med || "").toLowerCase();
   const camp = a.camp || "";
@@ -78,6 +94,8 @@ function byUtm(a: PurchaseAttribution, campaigns: CampaignRef[]): ChannelResult 
   }
   const byId = campaigns.find((c) => c.id === camp);
   if (byId) return { group: "meta", detail: byId.name, campaignId: byId.id };
+  const byTag = camp ? byAdTag(camp, a.cont || "", campaigns, tags) : undefined;
+  if (byTag) return { group: "meta", detail: byTag.name, campaignId: byTag.id };
   for (const [re, keyword] of MANUAL_TAG_KEYWORD) {
     if (re.test(camp)) {
       const hit = campaigns.find((c) => c.name.includes(keyword));
@@ -103,9 +121,9 @@ function byReferrer(ref: string): ChannelResult {
   return { group: "referral", detail: ref };
 }
 
-export function classifyChannel(a: PurchaseAttribution | undefined, campaigns: CampaignRef[]): ChannelResult {
+export function classifyChannel(a: PurchaseAttribution | undefined, campaigns: CampaignRef[], tags: AdTagRef[] = []): ChannelResult {
   if (!a) return { group: "unattributed", detail: "Mixpanel 기록 없음" };
-  if (a.src || a.camp || a.inf || a.med) return byUtm(a, campaigns);
+  if (a.src || a.camp || a.inf || a.med) return byUtm(a, campaigns, tags);
   if (a.fbclid) return { group: "meta", detail: "캠페인 불명" };
   if (a.ref && !REDIRECT_REF.test(a.ref)) return byReferrer(a.ref);
   if (a.app === "NAVER") return { group: "search", detail: "네이버 앱" };
