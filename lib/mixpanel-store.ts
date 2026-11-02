@@ -4,7 +4,7 @@
  * Mixpanel JQL 은 프로젝트당 시간당 호출 한도가 있고(약 60회), 귀속 계산 1번에 최대 3회를 쓴다.
  * 결제 1건의 귀속(UTM·방문기록 복원·신규 여부)은 결제 시점에 정해지므로 날짜별로 계산해 저장하고 재사용한다.
  *
- * KV 키: mx:attr:v3:{YYYY-MM-DD(KST)} → { fetchedAt: epoch ms, rows: PurchaseAttribution[], complete: boolean }
+ * KV 키: mx:attr:v5:{YYYY-MM-DD(KST)} → { fetchedAt: epoch ms, rows: PurchaseAttribution[], complete: boolean }
  *        mx:attr:lock → 갱신 중인 인스턴스 표시 (60초 만료)
  *
  * 갱신 규칙 (planFetch / isFinal):

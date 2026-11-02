@@ -123,6 +123,14 @@ assert.equal(metaAdTouch([tch(2 * D, "ig", "paid", SEED3.id), tch(D, "fbig", "in
 assert.equal(metaAdTouch([tch(8 * D, "ig", "paid", SEED3.id)], T), undefined, "7일 넘으면 제외");
 assert.equal(metaAdTouch([tch(D, "fbig", "inf", "pu"), tch(0.2 * D, null, null, null, 1)], T), undefined, "DM 링크·fbclid 만이면 없음");
 assert.equal(metaAdTouch([tch(-D, "ig", "paid", SEED3.id)], T), undefined, "결제 뒤 방문은 제외");
+// 파트너십 광고 utm_medium=inf 방문(리뷰 HIGH): 후보로 잡고, 메타인지는 광고 태그 표로 분류
+const psVisit = metaAdTouch([tch(3 * D, "ig", "inf", "pu_264Q_ps_pa_life_vid261014"), tch(D, "fbig", "inf", "pu")], T);
+assert.equal(psVisit?.[3], "pu_264Q_ps_pa_life_vid261014", "DM 링크 방문은 건너뛰고 파트너십 광고 방문");
+assert.equal(classifyChannel({ ...base, src: "fbig", med: "inf", camp: "pu", inf: "264Q_IG4",
+  viaMeta: { src: psVisit![1]!, med: psVisit![2]!, camp: psVisit![3]! } }, LIVE, PS).campaignId, SEED4.id, "광고 태그 표로 메타 캠페인");
+assert.deepEqual(classifyChannel({ ...base, src: "fbig", med: "inf", camp: "pu", inf: "264Q_IG4",
+  viaMeta: { src: "ig", med: "inf", camp: "pu_unknown_tag" } }, LIVE, PS), { group: "influencer", detail: "리포포" }, "태그 표에 없는 inf 방문이면 인플루언서 그대로");
+assert.equal(metaAdTouch([tch(D, "ziwooney", "influencer", "263Q_SS1")], T), undefined, "8월 초기 할인 링크 방문 제외");
 
 // url_tags 파싱: 전체 URL 이 들어간 칸도 '?' 뒤만, 매크로 캠페인은 ID 매칭이 처리하므로 제외
 assert.deepEqual(parseUrlTags("utm_source=fbig&utm_medium=ig_meta&utm_campaign=264QS&utm_content=lire_slpp"), { camp: "264QS", cont: "lire_slpp" });

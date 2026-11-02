@@ -115,10 +115,18 @@ export function lastTouch(sorted: Touch[]): Touch | undefined {
   return sorted.filter(isMetaUtm).pop() || last;
 }
 
-/** 결제 시각 전 7일 안 마지막 메타 광고 utm 방문. fbclid 만 남은 방문은 광고인지 몰라 안 쓴다. */
+// DM 할인 링크 방문 자체 (콘솔 링크 = utm_campaign pu · utm_content discount_percent, 8월 초기 링크 = utm_medium influencer)
+const isDiscountLinkVisit = (x: Touch) => x[3] === "pu" || x[4] === "discount_percent" || (x[2] || "").toLowerCase() === "influencer";
+
+/**
+ * 결제 시각 전 7일 안 마지막 메타 광고 utm 방문 후보. fbclid 만 남은 방문은 광고인지 몰라 안 쓴다.
+ * 파트너십 광고는 utm_medium=inf 로 들어오기도 해(pu_264Q_ps_*) 캠페인 목록 없이는 메타인지 못 가린다 →
+ * DM 할인 링크 방문만 빼고 후보로 두고, 메타인지는 분류할 때(byUtm, 캠페인·광고 태그 표) 정한다.
+ */
 export function metaAdTouch(touches: Touch[], t: number): Touch | undefined {
   return touches
-    .filter((x) => x[0] <= t && x[0] >= t - LOOKBACK_DAYS * DAY_MS && isMetaUtm(x))
+    .filter((x) => x[0] <= t && x[0] >= t - LOOKBACK_DAYS * DAY_MS && !isDiscountLinkVisit(x)
+      && (isMetaUtm(x) || (x[2] || "").toLowerCase() === "inf"))
     .sort((a, b) => a[0] - b[0])
     .pop();
 }
