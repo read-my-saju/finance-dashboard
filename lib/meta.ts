@@ -522,7 +522,7 @@ export function aggregateMetaByCampaign(rows: MetaInsightRow[]): CampaignAggrega
 }
 
 /** 광고 1개의 URL 매개변수 → 캠페인. 수동 utm 태그(264QS 등)를 캠페인 ID 로 잇는 데 쓴다 (lib/channel.ts). */
-export type AdTagRef = { campaignId: string; camp: string; cont: string };
+export type AdTagRef = { campaignId: string; campaignName: string; camp: string; cont: string };
 
 /**
  * 광고 크리에이티브의 url_tags 에서 utm_campaign·utm_content 를 읽는다.
@@ -547,8 +547,9 @@ export async function fetchAdUrlTags(): Promise<AdTagRef[]> {
   const out: AdTagRef[] = [];
   const baseParams = new URLSearchParams({
     access_token: main.tok,
-    fields: "campaign_id,creative{url_tags}",
-    limit: "500",
+    fields: "campaign_id,campaign{name},creative{url_tags}",
+    // 중첩 필드라 한 번에 많이 받으면 'Please reduce the amount of data' 오류가 나기 쉬움
+    limit: "200",
     effective_status: JSON.stringify([
       "ACTIVE", "PAUSED", "CAMPAIGN_PAUSED", "ADSET_PAUSED", "ARCHIVED",
       "IN_PROCESS", "WITH_ISSUES", "PENDING_REVIEW", "DISAPPROVED",
@@ -578,7 +579,7 @@ export async function fetchAdUrlTags(): Promise<AdTagRef[]> {
     for (const it of items) {
       const tags = parseUrlTags(String(it?.creative?.url_tags || ""));
       const campaignId = String(it?.campaign_id || "");
-      if (tags && campaignId) out.push({ campaignId, ...tags });
+      if (tags && campaignId) out.push({ campaignId, campaignName: String(it?.campaign?.name || ""), ...tags });
     }
 
     const next = body?.paging?.cursors?.after as string | undefined;

@@ -47,6 +47,21 @@ function freshEntry(key: string): CacheEntry | null {
   return e && e.expiresAt > Date.now() ? e : null;
 }
 
+// 광고 url_tags 는 기간과 무관 — 이번·이전 기간 entry 가 같이 쓰도록 10분간 한 번만 받는다.
+const AD_TAGS_TTL_MS = 10 * 60 * 1000;
+let adTagsCache: { at: number; tags: AdTagRef[] } | null = null;
+
+async function loadAdTags(force: boolean): Promise<AdTagRef[]> {
+  if (!force && adTagsCache && Date.now() - adTagsCache.at < AD_TAGS_TTL_MS) return adTagsCache.tags;
+  try {
+    adTagsCache = { at: Date.now(), tags: await fetchAdUrlTags() };
+    return adTagsCache.tags;
+  } catch (e: any) {
+    console.warn("[dashboard-cache] fetchAdUrlTags failed:", String(e?.message || e).slice(0, 200));
+    return adTagsCache?.tags ?? [];
+  }
+}
+
 export type LoadOptions = {
   from: string;
   until: string;
@@ -87,12 +102,7 @@ async function loadRawData(opts: LoadOptions): Promise<CacheEntry> {
   } catch (e: any) {
     console.warn("[dashboard-cache] fetchCampaignBudgets failed:", String(e?.message || e).slice(0, 200));
   }
-  let adTags: AdTagRef[] = [];
-  try {
-    adTags = await fetchAdUrlTags();
-  } catch (e: any) {
-    console.warn("[dashboard-cache] fetchAdUrlTags failed:", String(e?.message || e).slice(0, 200));
-  }
+  const adTags = await loadAdTags(Boolean(opts.force));
 
   const entry: CacheEntry = {
     key,

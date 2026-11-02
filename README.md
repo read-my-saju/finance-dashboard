@@ -78,6 +78,9 @@ KPI 줄 아래 "채널 성과" 섹션은 토스 결제를 Mixpanel 결제 이벤
 | `MIXPANEL_PROJECT_ID` | 프로젝트 ID |
 
 - 분류 규칙: `lib/channel.ts` (결제 UTM → 결제 전 7일 방문기록 → 인앱 흔적 → 미귀속, 마지막 유입 기준)
+  - UTM 안 순서: 할인코드(influencer_code) → 메타(캠페인 ID → Meta 광고 url_tags 표: utm_campaign+utm_content) → utm_medium=inf → 자사 SNS(social·profile·link_in_bio·카카오) → 캠페인 이름 키워드(예비) → 검색광고(cpc) → 기타
+  - 수동 태그(264QS 등)는 Meta 광고 URL 매개변수에서 자동으로 캠페인을 찾으므로 코드 수정이 필요 없음. 새 광고는 `utm_campaign={{campaign.id}}&utm_content={{ad.id}}` 권장
+- 손으로 넣는 비용: `lib/manual-costs.ts` (시딩비·네이버 검색광고·AI API 결제액, 그 달 일수로 나눠 매일 반영)
 - 집계: `lib/channel-revenue.ts` (채널별로 `computeProfit` 재사용 — 계산식은 `lib/calc.ts` 단독)
 - 결제 이벤트에 UTM 이 실린 2026-09-03 이후 기간만 집계합니다. 그 이전을 포함한 기간을 고르면 9/3부터 보여주고 비교 기간은 생략합니다.
 - 테스트: `npx tsc lib/channel.test.ts --outDir .test-out --module commonjs --target es2020 --esModuleInterop --skipLibCheck --moduleResolution node && node .test-out/channel.test.js`

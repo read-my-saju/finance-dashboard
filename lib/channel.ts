@@ -3,6 +3,7 @@
  *
  * 판정 순서 (2026-10-10 사장님 확정, 마지막 유입 기준):
  *   1. 결제 이벤트(s2s_purchase_verified)의 utm_* / influencer_code
+ *      UTM 안에서는 할인코드 → 메타(캠페인 ID·광고 URL 태그) → utm_medium=inf → 자사 SNS(카카오 포함) → 키워드 → 검색광고 → 기타
  *   2. 없으면 결제 전 7일 안 마지막 방문의 utm·fbclid·referrer (lib/mixpanel.ts 가 채움)
  *   3. 인앱 브라우저 흔적
  *   4. 미귀속
@@ -63,7 +64,7 @@ const MANUAL_TAG_KEYWORD: Array<[RegExp, string]> = [
   [/^(pu_)?4Q_ny/i, "신년운"],
 ];
 
-const OWNED_SOURCE: Record<string, string> = { ig: "인스타 프로필", kakao: "카카오 채널", meta: "페이스북 프로필", fb: "페이스북 프로필" };
+const OWNED_SOURCE: Record<string, string> = { ig: "인스타 프로필", kakao: "카카오 채널", kko: "카카오 채널", meta: "페이스북 프로필", fb: "페이스북 프로필" };
 const META_SOURCES = new Set(["ig", "fb", "meta", "th", "fbig", "an", "msg"]);
 // 유료 검색광고 매체값 (네이버 파워링크 = utm_source=naver&utm_medium=cpc). 메타 게재 위치 source 면 메타로 둔다.
 const SEARCH_AD_MEDIUMS = new Set(["cpc", "ppc", "sa", "paid_search"]);
@@ -71,16 +72,18 @@ const SEARCH_AD_NAME: Record<string, string> = { naver: "네이버 파워링크"
 // 로그인·결제 중간 페이지 — 유입 경로가 아니므로 referrer 로 쓰지 않는다.
 const REDIRECT_REF = /(^|\.)nid\.naver\.com$|(^|\.)pay\.naver\.com$/;
 
-/** 광고 url_tags 표로 캠페인 찾기. 여러 캠페인 광고에 같은 태그가 있으면 최근 집행 캠페인(campaigns 순서). */
+/**
+ * 광고 url_tags 표로 캠페인 찾기. utm_content 까지 같은 광고가 있으면 그 광고들만, 없으면 utm_campaign 이 같은 광고.
+ * 후보가 여러 캠페인이면 최근 집행 캠페인(campaigns 순서). 그 기간 광고비가 없어 목록에 없는 캠페인이어도
+ * 다른 캠페인으로 넘기지 않고 그 캠페인으로 둔다 (264QS 가 연애로 잘못 가던 문제의 재발 방지).
+ */
 function byAdTag(camp: string, cont: string, campaigns: CampaignRef[], tags: AdTagRef[]): CampaignRef | undefined {
   const same = tags.filter((t) => t.camp.toLowerCase() === camp.toLowerCase());
   const exact = same.filter((t) => t.cont.toLowerCase() === cont.toLowerCase());
-  for (const pool of [exact, same]) {
-    const ids = new Set(pool.map((t) => t.campaignId));
-    const hit = campaigns.find((c) => ids.has(c.id));
-    if (hit) return hit;
-  }
-  return undefined;
+  const pool = exact.length ? exact : same;
+  if (!pool.length) return undefined;
+  const ids = new Set(pool.map((t) => t.campaignId));
+  return campaigns.find((c) => ids.has(c.id)) ?? { id: pool[0].campaignId, name: pool[0].campaignName || "캠페인 불명" };
 }
 
 function byUtm(a: PurchaseAttribution, campaigns: CampaignRef[], tags: AdTagRef[]): ChannelResult {
@@ -88,14 +91,17 @@ function byUtm(a: PurchaseAttribution, campaigns: CampaignRef[], tags: AdTagRef[
   const med = (a.med || "").toLowerCase();
   const camp = a.camp || "";
   if (src === "claudetest") return { group: "unattributed", detail: "내부 테스트" };
-  if (a.inf || med === "inf") return { group: "influencer", detail: a.inf ? `할인 링크 ${a.inf}` : camp || "인플루언서" };
-  if (med === "social" || med === "profile" || a.cont === "link_in_bio") {
-    return { group: "owned", detail: OWNED_SOURCE[src] || src || "자사 SNS" };
-  }
+  if (a.inf) return { group: "influencer", detail: `할인 링크 ${a.inf}` };
+  // 메타 광고 URL 매개변수에 실제로 있는 태그면 유료 광고 클릭 — utm_medium=inf 인 파트너십 광고도 메타 (2026-11-02 사장님 결정)
   const byId = campaigns.find((c) => c.id === camp);
   if (byId) return { group: "meta", detail: byId.name, campaignId: byId.id };
   const byTag = camp ? byAdTag(camp, a.cont || "", campaigns, tags) : undefined;
   if (byTag) return { group: "meta", detail: byTag.name, campaignId: byTag.id };
+  if (med === "inf") return { group: "influencer", detail: camp || "인플루언서" };
+  // 카카오 채널·메시지는 우리가 보낸 링크 (kko/ms = 카카오 메시지, 2026-11-02)
+  if (med === "social" || med === "profile" || a.cont === "link_in_bio" || src === "kko" || src === "kakao") {
+    return { group: "owned", detail: src === "kko" && med === "ms" ? "카카오 메시지" : OWNED_SOURCE[src] || src || "자사 SNS" };
+  }
   for (const [re, keyword] of MANUAL_TAG_KEYWORD) {
     if (re.test(camp)) {
       const hit = campaigns.find((c) => c.name.includes(keyword));

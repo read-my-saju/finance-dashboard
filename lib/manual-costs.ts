@@ -9,10 +9,12 @@
  *                     건당 단가는 0원(calc.ts).
  *
  * 모든 항목은 date 가 속한 달의 일수로 나눠 그 달 매일에 넣는다 (사장님 결정 2026-11-02: 하루에 몰리면
- * 일별 손익·손익분기 추이가 튄다). 달이 마감되면 여기에 한 줄씩 추가한다. date 는 KST YYYY-MM-DD.
+ * 일별 손익·손익분기 추이가 튄다). 실제 집행 기간을 아는 비용(네이버)은 from~date 에만 나눈다.
+ * 달이 마감되면 여기에 한 줄씩 추가한다. date 는 KST YYYY-MM-DD.
  */
 
-export type ManualCost = { date: string; amount: number; label: string };
+// from 이 있으면 from~date 사이에만 나눈다 (실제 집행일을 아는 비용). 없으면 date 가 속한 달 전체.
+export type ManualCost = { date: string; amount: number; label: string; from?: string };
 
 export const SEEDING_AD_COSTS: ManualCost[] = [
   { date: "2026-10-02", amount: 1_100_000, label: "인플루언서 시딩 지우니·죠대리 (3.3% 총액)" },
@@ -22,8 +24,8 @@ export const SEEDING_AD_COSTS: ManualCost[] = [
 ];
 
 export const NAVER_AD_COSTS: ManualCost[] = [
-  { date: "2026-08-31", amount: 6_137, label: "네이버 파워링크 8/28~31 소진" },
-  { date: "2026-09-30", amount: 44_029, label: "네이버 파워링크 9/1~23 소진" },
+  { from: "2026-08-28", date: "2026-08-31", amount: 6_137, label: "네이버 파워링크 8/28~31 소진" },
+  { from: "2026-09-01", date: "2026-09-23", amount: 44_029, label: "네이버 파워링크 9/1~23 소진" },
 ];
 
 export const AI_API_PAYMENTS: ManualCost[] = [
@@ -31,16 +33,27 @@ export const AI_API_PAYMENTS: ManualCost[] = [
   { date: "2026-10-31", amount: 934_769, label: "10월 Claude·OpenAI API 결제액" },
 ];
 
-/** 항목을 그 달 일수로 나눠 기간 안의 날짜별로 합친다. computeProfit 의 metaByDay 와 같은 모양. */
+/** 항목을 나눌 날짜들: from~date, from 이 없으면 date 가 속한 달 전체. */
+function spreadDays(c: ManualCost): string[] {
+  const [y, mo] = c.date.split("-").map(Number);
+  const monthEnd = `${c.date.slice(0, 8)}${String(new Date(Date.UTC(y, mo, 0)).getUTCDate()).padStart(2, "0")}`;
+  const first = c.from ?? `${c.date.slice(0, 8)}01`;
+  const last = c.from ? c.date : monthEnd;
+  const out: string[] = [];
+  for (let d = new Date(`${first}T00:00:00Z`); d.toISOString().slice(0, 10) <= last; d.setUTCDate(d.getUTCDate() + 1)) {
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+/** 항목을 그 달(또는 from~date) 일수로 나눠 기간 안의 날짜별로 합친다. computeProfit 의 metaByDay 와 같은 모양. */
 export function spreadByMonth(list: ManualCost[], range: { from: string; until: string }): Array<{ date: string; spend: number }> {
   const m = new Map<string, number>();
   for (const c of list) {
-    const [y, mo] = c.date.split("-").map(Number);
-    const days = new Date(Date.UTC(y, mo, 0)).getUTCDate();
-    for (let d = 1; d <= days; d++) {
-      const date = `${c.date.slice(0, 8)}${String(d).padStart(2, "0")}`;
+    const days = spreadDays(c);
+    for (const date of days) {
       if (date < range.from || date > range.until) continue;
-      m.set(date, (m.get(date) || 0) + c.amount / days);
+      m.set(date, (m.get(date) || 0) + c.amount / days.length);
     }
   }
   return Array.from(m, ([date, spend]) => ({ date, spend }));
