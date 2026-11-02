@@ -160,8 +160,8 @@ assert.equal(g("meta").spend, 50_000, "메타 광고비 = 계정 전체");
 assert.equal(g("meta").children.reduce((s, x) => s + x.spend, 0), 50_000, "캠페인 광고비 합 = 메타 광고비");
 assert.equal(g("meta").rev, 59_800);
 assert.equal(Math.round(period.metaRoas!), Math.round(59_800 / 50_000 * 100));
-// MER 분모 = 메타 + 10월 시딩 하루치(380만 ÷ 31일)
-assert.equal(Math.round(period.mer!), Math.round(89_600 / (50_000 + 3_800_000 / 31) * 100));
+// MER 분모 기본 = 메타만 (시딩·브랜딩은 화면 버튼으로 켰을 때만)
+assert.equal(Math.round(period.mer!), Math.round(89_600 / 50_000 * 100));
 assert.equal(Math.round(period.newCustomerRoas!), Math.round(29_900 / 50_000 * 100));
 assert.equal(period.newCustomerCac, 50_000);
 assert.equal(Math.round(period.pixelRoas!), 140);
@@ -169,6 +169,17 @@ assert.equal(g("search").rev, 19_900);
 assert.equal(period.restoredCount, 1);
 assert.equal(period.unattributedCount, 1);
 assert.equal(Math.round(period.coverage! * 10), Math.round((89_600 - 9_900) / 89_600 * 1000));
+// '시딩·브랜딩 포함'을 켜면 MER 분모에 10월 마케팅비 하루치(380만 ÷ 31일)가 더해지고, 메타 ROAS 는 그대로
+const withMk = buildChannelPeriod({
+  payments: [pay("a", 29_900), pay("b", 29_900), pay("c", 19_900), pay("d", 9_900)],
+  metaRows: [metaRow(CAMPAIGNS[0].id, 40_000, 70_000), metaRow(CAMPAIGNS[2].id, 10_000, 0)],
+  attributions: new Map([attr("a", { src: "ig", med: "paid", camp: CAMPAIGNS[0].id }), attr("b", { src: "ig", med: "paid", camp: CAMPAIGNS[0].id })]),
+  campaigns: CAMPAIGNS,
+  includeMarketing: true,
+  range,
+});
+assert.equal(Math.round(withMk.mer!), Math.round(89_600 / (50_000 + 3_800_000 / 31) * 100));
+assert.equal(Math.round(withMk.metaRoas!), Math.round(59_800 / 50_000 * 100), "메타 ROAS 에는 안 섞임");
 // 네이버 검색광고비(손으로 넣은 월 소진액, 9월 44,029원 일할)는 '검색광고' 행과 MER 분모에만 들어간다
 const sep = { from: "2026-09-01", until: "2026-09-30" };
 const naver = buildChannelPeriod({

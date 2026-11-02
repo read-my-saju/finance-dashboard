@@ -19,7 +19,7 @@ import {
 } from "./meta";
 import { loadIncrementalRows } from "./meta-store";
 import { computeProfit, type ProfitSummary } from "./profit";
-import { AI_API_PAYMENTS, NAVER_AD_COSTS, SEEDING_AD_COSTS, spreadByMonth, totalInRange } from "./manual-costs";
+import { AI_API_PAYMENTS, BRANDING_COSTS, NAVER_AD_COSTS, SEEDING_COSTS, marketingByDay, spreadByMonth, totalInRange } from "./manual-costs";
 import { MixpanelConfigError } from "./mixpanel";
 import { loadStoredAttributions } from "./mixpanel-store";
 import { buildChannelPeriod, campaignRefs, type ChannelPeriod } from "./channel-revenue";
@@ -66,6 +66,8 @@ export type LoadOptions = {
   from: string;
   until: string;
   force?: boolean;
+  // 시딩·브랜딩(마케팅비)을 광고비에 더할지. 원본 캐시 키와는 무관 (계산 단계에서만 씀).
+  includeMarketing?: boolean;
 };
 
 async function loadRawData(opts: LoadOptions): Promise<CacheEntry> {
@@ -119,8 +121,8 @@ async function loadRawData(opts: LoadOptions): Promise<CacheEntry> {
   return entry;
 }
 
-/** 광고비 카드 내역: 메타 + 시딩(월 일할) + 네이버 검색광고(월 일할). */
-export type AdBreakdown = { meta: number; seeding: number; naver: number };
+/** 광고비 카드 내역. 시딩·브랜딩은 marketingIncluded 일 때만 광고비 합계에 들어가고, 아니면 '별도' 표시용. */
+export type AdBreakdown = { meta: number; naver: number; seeding: number; branding: number; marketingIncluded: boolean };
 
 export async function loadProfitSummary(opts: LoadOptions & {
   pgFeeRate?: number;
@@ -136,12 +138,16 @@ export async function loadProfitSummary(opts: LoadOptions & {
     range,
     pgFeeRate: opts.pgFeeRate,
     reportCostPerUnit: opts.reportCostPerUnit,
-    extraAdByDay: [...spreadByMonth(SEEDING_AD_COSTS, range), ...spreadByMonth(NAVER_AD_COSTS, range)],
+    extraAdByDay: [...spreadByMonth(NAVER_AD_COSTS, range), ...(opts.includeMarketing ? marketingByDay(range) : [])],
     extraReportCostByDay: spreadByMonth(AI_API_PAYMENTS, range),
   });
-  const seeding = totalInRange(SEEDING_AD_COSTS, range);
-  const naver = totalInRange(NAVER_AD_COSTS, range);
-  const adBreakdown = { meta: summary.totals.adSpend - seeding - naver, seeding, naver };
+  const adBreakdown: AdBreakdown = {
+    meta: metaByDay.reduce((s, r) => s + r.spend, 0),
+    naver: totalInRange(NAVER_AD_COSTS, range),
+    seeding: totalInRange(SEEDING_COSTS, range),
+    branding: totalInRange(BRANDING_COSTS, range),
+    marketingIncluded: Boolean(opts.includeMarketing),
+  };
   return { summary, adBreakdown, metaError: entry.metaError, cached: Boolean(wasCached) };
 }
 
@@ -288,6 +294,7 @@ export async function loadChannelRevenue(opts: LoadOptions): Promise<{
       attributions: byTx,
       campaigns,
       adTags: curRaw.adTags,
+      includeMarketing: opts.includeMarketing,
       range: r,
     });
   return {

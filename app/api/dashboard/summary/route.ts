@@ -2,7 +2,8 @@
  * GET /api/dashboard/summary?from=YYYY-MM-DD&until=YYYY-MM-DD&force=1
  *
  * 응답:
- *   range, fetchedAt, settings, totals (광고 손익 KPI), adBreakdown (광고비 = 메타 + 시딩 + 네이버), metaError, cached
+ *   range, fetchedAt, settings, totals (광고 손익 KPI), adBreakdown (메타·네이버·시딩·브랜딩), metaError, cached
+ *   marketing=1 이면 시딩·브랜딩을 광고비에 포함한다 (기본은 제외).
  *
  * lib/calc.ts 의 공식만 사용 — UI 에서 재계산 금지.
  */
@@ -29,6 +30,8 @@ export async function GET(req: NextRequest) {
   const from = searchParams.get("from") || "2026-01-01";
   const until = searchParams.get("until") || new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10); // KST 오늘
   const force = searchParams.get("force") === "1";
+  // 시딩·브랜딩(마케팅비)을 광고비에 포함할지 — 화면 '시딩·브랜딩 포함' 버튼
+  const includeMarketing = searchParams.get("marketing") === "1";
 
   const envPg = readNumber(process.env.DEFAULT_PG_FEE_RATE || null, DEFAULT_PG_FEE_RATE);
   const envReport = readNumber(process.env.DEFAULT_REPORT_COST_PER_UNIT || null, DEFAULT_REPORT_COST_PER_UNIT);
@@ -40,6 +43,7 @@ export async function GET(req: NextRequest) {
       from,
       until,
       force,
+      includeMarketing,
       pgFeeRate,
       reportCostPerUnit,
     });

@@ -56,14 +56,18 @@ type ProfitTotals = {
   adAdvice: "증액 가능" | "광고비 주의" | "광고비 없음";
   reportCount: number;
   cancelledAmount: number;
-  extraAdSpend?: number;   // 광고비 중 메타 외(시딩·네이버, 월 일할) (lib/manual-costs.ts)
+  extraAdSpend?: number;   // 광고비 중 메타 외(네이버, 켰으면 시딩·브랜딩. 월 일할) (lib/manual-costs.ts)
 };
+
+// 광고비 카드 내역 (summary API). 시딩·브랜딩은 marketingIncluded 일 때만 광고비 합계에 들어 있다.
+type AdBreakdown = { meta: number; naver: number; seeding: number; branding: number; marketingIncluded: boolean };
 
 type SummaryData = {
   range: { from: string; until: string };
   fetchedAt: string;
   settings: { pgFeeRate: number; reportCostPerUnit: number };
   totals: ProfitTotals;
+  adBreakdown?: AdBreakdown;
   metaError: string | null;
   cached?: boolean;
 };
@@ -148,6 +152,30 @@ function useTheme(): [Theme, () => void] {
     });
   }, []);
   return [theme, toggle];
+}
+
+/**
+ * '시딩·브랜딩 포함' 버튼 상태. 기본은 꺼짐 = 광고비는 메타 + 네이버만 (매일 광고 효율용).
+ * 켜면 시딩·브랜딩(그 달 일수로 나눔)을 광고비에 더한다 — 월말 종합 손익용. 브라우저에 기억.
+ * ready = 저장값을 읽었는지. 읽기 전에 불러오면 꺼짐·켜짐으로 무거운 요청이 두 번 나가서 그 전엔 안 불러온다.
+ */
+function useIncludeMarketing(): [boolean, () => void, boolean] {
+  const [on, setOn] = useState(false);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    try {
+      setOn(localStorage.getItem("rmsf_marketing") === "1");
+    } catch {}
+    setReady(true);
+  }, []);
+  useEffect(() => {
+    if (!ready) return;
+    try {
+      localStorage.setItem("rmsf_marketing", on ? "1" : "0");
+    } catch {}
+  }, [on, ready]);
+  const toggle = useCallback(() => setOn((prev) => !prev), []);
+  return [on, toggle, ready];
 }
 
 // Recharts 는 SVG 속성에 hex 를 직접 받으므로 테마별 팔레트 객체로 공급.
@@ -336,6 +364,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [theme, toggleTheme] = useTheme();
+  const [includeMarketing, toggleMarketing, marketingReady] = useIncludeMarketing();
   const pal = theme === "dark" ? DARK_PAL : LIGHT_PAL;
   const monthly = useMemo(() => bucketMonthly(daily?.daily ?? []), [daily]);
 
@@ -352,6 +381,7 @@ export default function Dashboard() {
     setError(null);
     const qs = new URLSearchParams({ from, until });
     if (force) qs.set("force", "1");
+    if (includeMarketing) qs.set("marketing", "1");
     const q = qs.toString();
 
     // 직전 동기간: 선택 범위 바로 앞의 같은 길이 구간 (KPI 증감 비교용).
@@ -360,6 +390,7 @@ export default function Dashboard() {
     const prevFrom = addDays(prevUntil, -(len - 1));
     const prevQs = new URLSearchParams({ from: prevFrom, until: prevUntil });
     if (force) prevQs.set("force", "1");
+    if (includeMarketing) prevQs.set("marketing", "1");
 
     // 채널 성과는 Mixpanel 조회가 붙어 다른 카드보다 늦을 수 있어 따로 기다린다.
     setChannelsLoading(true);
@@ -416,13 +447,14 @@ export default function Dashboard() {
     } finally {
       if (reqIdRef.current === myId) setLoading(false);
     }
-  }, [from, until]);
+  }, [from, until, includeMarketing]);
 
   useEffect(() => {
+    if (!marketingReady) return;
     load(false);
     // unmount / 다음 load 시작 시 stale 응답을 모두 폐기.
     return () => { reqIdRef.current++; };
-  }, [load]);
+  }, [load, marketingReady]);
 
   // 화면 순매출 = PortOne 콘솔 순거래액 = payments.netRevenue (단일 진실)
   // summary.totals.netRevenue 도 같은 값이지만 위 값을 우선 사용해 UI 동기화 보장.
@@ -460,6 +492,9 @@ export default function Dashboard() {
       {/* ── 1. 상단 KPI 스트립 ─────────────────────────────────────────── */}
       <KpiStrip
         totals={summary?.totals}
+        adBreakdown={summary?.adBreakdown}
+        includeMarketing={includeMarketing}
+        onToggleMarketing={toggleMarketing}
         sourceNetRevenue={sourceNetRevenue}
         daily={daily?.daily ?? []}
         prev={prevTotals}
@@ -611,6 +646,21 @@ function Header({
 
 const filterBtnCls = "rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800";
 
+/** 광고비 카드 아래 내역: 메타·네이버, 시딩·브랜딩은 포함/별도를 구분해 적는다. */
+function adSpendSubText(ab: AdBreakdown | undefined): string | undefined {
+  if (!ab) return undefined;
+  const parts = [`메타 ${fmtKrw(ab.meta)}`];
+  if (ab.naver > 0) parts.push(`네이버 ${fmtKrw(ab.naver)}`);
+  const mk = ab.seeding + ab.branding;
+  if (mk <= 0) return parts.join(" · ");
+  if (ab.marketingIncluded) {
+    if (ab.seeding > 0) parts.push(`시딩 ${fmtKrw(ab.seeding)}`);
+    if (ab.branding > 0) parts.push(`브랜딩 ${fmtKrw(ab.branding)}`);
+    return parts.join(" · ");
+  }
+  return `${parts.join(" · ")} (시딩·브랜딩 ${fmtKrw(mk)} 별도)`;
+}
+
 function FilterBar({
   from, until, setFrom, setUntil, loading, onRefresh, onLogout,
 }: {
@@ -700,9 +750,12 @@ function CollapsibleCard({
 // ────────────────────────────────────────────────────────────────────────────
 
 function KpiStrip({
-  totals, sourceNetRevenue, daily, prev, pal,
+  totals, adBreakdown, includeMarketing, onToggleMarketing, sourceNetRevenue, daily, prev, pal,
 }: {
   totals?: ProfitTotals;
+  adBreakdown?: AdBreakdown;
+  includeMarketing: boolean;
+  onToggleMarketing: () => void;
   sourceNetRevenue: number;
   daily: DailyRow[];
   prev: PrevTotals | null;
@@ -748,7 +801,8 @@ function KpiStrip({
         delta={adDelta}
         deltaInverse
         sparkData={finishedDaily.map((d) => d.adSpend)}
-        subText={totals?.extraAdSpend ? `시딩·네이버 ${fmtKrw(totals.extraAdSpend)} 포함` : undefined}
+        subText={adSpendSubText(adBreakdown)}
+        action={<MarketingSwitch on={includeMarketing} onToggle={onToggleMarketing} />}
         pal={pal}
       />
       <KpiCard
@@ -792,8 +846,32 @@ function DeltaBadge({ delta, deltaInverse }: { delta: number | null; deltaInvers
   );
 }
 
+/**
+ * 광고비 카드 안의 '시딩·브랜딩' 스위치. 켜면 시딩·브랜딩 비용(그 달 일수로 나눔)이 광고비에 들어가고
+ * MER·공헌이익·일별 차트·채널 성과 MER 도 같이 바뀐다. 끄면 메타 + 네이버 광고비만 (매일 광고 효율용).
+ */
+function MarketingSwitch({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={onToggle}
+      title="켜면 시딩·브랜딩 비용(그 달 일수로 나눔)을 광고비에 포함합니다. MER·공헌이익도 같이 바뀝니다."
+      className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${on
+        ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
+        : "border-gray-200 text-gray-500 hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"}`}
+    >
+      <span aria-hidden="true" className={`relative inline-block h-3 w-5 rounded-full transition-colors ${on ? "bg-violet-500" : "bg-gray-300 dark:bg-zinc-600"}`}>
+        <span className={`absolute top-0.5 h-2 w-2 rounded-full bg-white transition-all ${on ? "left-2.5" : "left-0.5"}`} />
+      </span>
+      시딩·브랜딩
+    </button>
+  );
+}
+
 function KpiCard({
-  label, value, delta, deltaInverse, sparkData, subText, pal,
+  label, value, delta, deltaInverse, sparkData, subText, action, pal,
 }: {
   label: string;
   value: number;
@@ -801,13 +879,17 @@ function KpiCard({
   deltaInverse?: boolean;        // 광고비/수수료처럼 "줄어드는 게 좋은" 지표는 색 반전
   sparkData: number[];
   subText?: string;
+  action?: React.ReactNode;      // 라벨 오른쪽 작은 버튼 (광고비 카드의 시딩·브랜딩 스위치)
   pal: ChartPalette;
 }) {
   const sparkPoints = sparkData.map((v, i) => ({ x: i, y: v }));
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700">
-      <div className="text-xs font-medium text-gray-500 dark:text-zinc-400">{label}</div>
+      <div className="flex items-start justify-between gap-2">
+        <div className="text-xs font-medium text-gray-500 dark:text-zinc-400">{label}</div>
+        {action}
+      </div>
       <div className="mt-1.5 text-2xl font-bold tabular-nums tracking-tight text-gray-900 dark:text-zinc-100">
         {fmtKrw(value)}
       </div>
