@@ -10,7 +10,7 @@
  * 일별 결합:
  *   - 일별 순매출 = 그날 PAID 의 amount.total + PARTIAL_CANCELLED 의 (total - cancelled)
  *   - 일별 결제 건수 = 그날 PAID + PARTIAL_CANCELLED 건수
- *   - 일별 광고비 = Meta insights 의 spend (광고계정 통화 KRW) + 시딩·네이버 검색광고(extraAdByDay, 일할. 시딩은 회사 전체 손익에만)
+ *   - 일별 광고비 = Meta insights 의 spend (광고계정 통화 KRW) + 네이버 검색광고·시딩·브랜딩(extraAdByDay, 일할. 시딩·브랜딩은 화면 토글로 켰을 때만, 회사 전체 손익에만)
  *
  * lib/calc.ts 의 공식만 사용. UI/페이지에서 직접 계산하지 않는다.
  */
@@ -157,7 +157,7 @@ export type ProfitSummary = {
   totals: CalcResult & {
     reportCount: number;
     cancelledAmount: number;
-    extraAdSpend: number;      // 광고비 중 메타 외(시딩·네이버) 금액
+    extraAdSpend: number;      // 광고비 중 메타 외(네이버, 켰으면 시딩·브랜딩) 금액
   };
   daily: DailyProfitRow[];
 };
@@ -168,7 +168,7 @@ export function computeProfit(args: {
   range: { from: string; until: string };
   pgFeeRate?: number;
   reportCostPerUnit?: number;
-  extraAdByDay?: Array<{ date: string; spend: number }>;          // 메타 외 광고비(시딩·네이버, 일할)
+  extraAdByDay?: Array<{ date: string; spend: number }>;          // 메타 외 광고비(네이버·시딩·브랜딩, 일할)
   extraReportCostByDay?: Array<{ date: string; spend: number }>;  // API 실제 결제액(2026-10~)
 }): ProfitSummary {
   const pgFeeRate = args.pgFeeRate ?? DEFAULT_PG_FEE_RATE;
