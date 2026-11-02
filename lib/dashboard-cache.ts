@@ -66,8 +66,6 @@ export type LoadOptions = {
   from: string;
   until: string;
   force?: boolean;
-  // 시딩·브랜딩(마케팅비)을 광고비에 더할지. 원본 캐시 키와는 무관 (계산 단계에서만 씀).
-  includeMarketing?: boolean;
 };
 
 async function loadRawData(opts: LoadOptions): Promise<CacheEntry> {
@@ -121,24 +119,26 @@ async function loadRawData(opts: LoadOptions): Promise<CacheEntry> {
   return entry;
 }
 
-/** 광고비 카드 내역. 시딩·브랜딩은 marketingIncluded 일 때만 광고비 합계에 들어가고, 아니면 '별도' 표시용. */
-export type AdBreakdown = { meta: number; naver: number; seeding: number; branding: number; marketingIncluded: boolean };
+/** 광고비 카드 내역. 시딩·브랜딩은 화면 스위치를 켰을 때만 광고비 합계에 들어간다(totalsWithMarketing). */
+export type AdBreakdown = { meta: number; naver: number; seeding: number; branding: number };
 
 export async function loadProfitSummary(opts: LoadOptions & {
   pgFeeRate?: number;
   reportCostPerUnit?: number;
-}): Promise<{ summary: ProfitSummary; adBreakdown: AdBreakdown; metaError: string | null; cached: boolean }> {
+}): Promise<{ summary: ProfitSummary; summaryWithMarketing: ProfitSummary; adBreakdown: AdBreakdown; metaError: string | null; cached: boolean }> {
   const wasCached = !opts.force && freshEntry(`${opts.from}|${opts.until}`) !== null;
   const entry = await loadRawData(opts);
   const metaByDay = aggregateMetaByDay(entry.metaRows);
   const range = { from: opts.from, until: opts.until };
-  const summary = computeProfit({
+  // 시딩·브랜딩 제외(기본)·포함 두 벌을 같이 계산한다 — 화면 스위치는 다시 불러오지 않고 고르기만 (2026-11-03,
+  // 스위치마다 전체를 다시 받아 10월 기간에서 9~13초 걸리던 문제).
+  const compute = (withMarketing: boolean) => computeProfit({
     payments: entry.payments,
     metaByDay,
     range,
     pgFeeRate: opts.pgFeeRate,
     reportCostPerUnit: opts.reportCostPerUnit,
-    extraAdByDay: [...spreadByMonth(NAVER_AD_COSTS, range), ...(opts.includeMarketing ? marketingByDay(range) : [])],
+    extraAdByDay: [...spreadByMonth(NAVER_AD_COSTS, range), ...(withMarketing ? marketingByDay(range) : [])],
     extraReportCostByDay: spreadByMonth(AI_API_PAYMENTS, range),
   });
   const adBreakdown: AdBreakdown = {
@@ -146,9 +146,8 @@ export async function loadProfitSummary(opts: LoadOptions & {
     naver: totalInRange(NAVER_AD_COSTS, range),
     seeding: totalInRange(SEEDING_COSTS, range),
     branding: totalInRange(BRANDING_COSTS, range),
-    marketingIncluded: Boolean(opts.includeMarketing),
   };
-  return { summary, adBreakdown, metaError: entry.metaError, cached: Boolean(wasCached) };
+  return { summary: compute(false), summaryWithMarketing: compute(true), adBreakdown, metaError: entry.metaError, cached: Boolean(wasCached) };
 }
 
 export type MetaCampaignRow = {
@@ -294,7 +293,6 @@ export async function loadChannelRevenue(opts: LoadOptions): Promise<{
       attributions: byTx,
       campaigns,
       adTags: curRaw.adTags,
-      includeMarketing: opts.includeMarketing,
       range: r,
     });
   return {

@@ -59,7 +59,7 @@ type ProfitTotals = {
   extraAdSpend?: number;   // 광고비 중 메타 외(네이버, 켰으면 시딩·브랜딩. 월 일할) (lib/manual-costs.ts)
 };
 
-// 광고비 카드 내역 (summary API). 시딩·브랜딩은 marketingIncluded 일 때만 광고비 합계에 들어 있다.
+// 광고비 카드 내역 (summary API + 화면 스위치 상태). 시딩·브랜딩은 marketingIncluded 일 때만 광고비 합계에 들어 있다.
 type AdBreakdown = { meta: number; naver: number; seeding: number; branding: number; marketingIncluded: boolean };
 
 type SummaryData = {
@@ -67,7 +67,8 @@ type SummaryData = {
   fetchedAt: string;
   settings: { pgFeeRate: number; reportCostPerUnit: number };
   totals: ProfitTotals;
-  adBreakdown?: AdBreakdown;
+  totalsWithMarketing?: ProfitTotals;   // 시딩·브랜딩 포함 (스위치 켜짐)
+  adBreakdown?: Omit<AdBreakdown, "marketingIncluded">;
   metaError: string | null;
   cached?: boolean;
 };
@@ -92,6 +93,7 @@ type DailyData = {
   range: { from: string; until: string };
   fetchedAt: string;
   daily: DailyRow[];
+  dailyWithMarketing?: DailyRow[];      // 시딩·브랜딩 포함 (스위치 켜짐)
   metaError: string | null;
   cached?: boolean;
 };
@@ -157,9 +159,9 @@ function useTheme(): [Theme, () => void] {
 /**
  * '시딩·브랜딩 포함' 버튼 상태. 기본은 꺼짐 = 광고비는 메타 + 네이버만 (매일 광고 효율용).
  * 켜면 시딩·브랜딩(그 달 일수로 나눔)을 광고비에 더한다 — 월말 종합 손익용. 브라우저에 기억.
- * ready = 저장값을 읽었는지. 읽기 전에 불러오면 꺼짐·켜짐으로 무거운 요청이 두 번 나가서 그 전엔 안 불러온다.
+ * 서버가 두 벌을 같이 보내므로 켜고 끌 때 다시 불러오지 않는다.
  */
-function useIncludeMarketing(): [boolean, () => void, boolean] {
+function useIncludeMarketing(): [boolean, () => void] {
   const [on, setOn] = useState(false);
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -175,7 +177,7 @@ function useIncludeMarketing(): [boolean, () => void, boolean] {
     } catch {}
   }, [on, ready]);
   const toggle = useCallback(() => setOn((prev) => !prev), []);
-  return [on, toggle, ready];
+  return [on, toggle];
 }
 
 // Recharts 는 SVG 속성에 hex 를 직접 받으므로 테마별 팔레트 객체로 공급.
@@ -358,15 +360,45 @@ export default function Dashboard() {
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [daily, setDaily] = useState<DailyData | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignsData | null>(null);
-  const [prevTotals, setPrevTotals] = useState<PrevTotals | null>(null);
+  const [prevDaily, setPrevDaily] = useState<{ days: number; off: DailyRow[]; on: DailyRow[] } | null>(null);
   const [channels, setChannels] = useState<ChannelsData | null>(null);
   const [channelsLoading, setChannelsLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [theme, toggleTheme] = useTheme();
-  const [includeMarketing, toggleMarketing, marketingReady] = useIncludeMarketing();
+  const [includeMarketing, toggleMarketing] = useIncludeMarketing();
   const pal = theme === "dark" ? DARK_PAL : LIGHT_PAL;
-  const monthly = useMemo(() => bucketMonthly(daily?.daily ?? []), [daily]);
+
+  // 스위치에 맞는 쪽을 고른다 (서버가 시딩·브랜딩 제외·포함 두 벌을 보냄. 계산은 서버, 화면은 선택만)
+  const summaryView = useMemo(() => {
+    if (!summary) return null;
+    const totals = includeMarketing && summary.totalsWithMarketing ? summary.totalsWithMarketing : summary.totals;
+    const adBreakdown = summary.adBreakdown ? { ...summary.adBreakdown, marketingIncluded: includeMarketing } : undefined;
+    return { ...summary, totals, adBreakdown };
+  }, [summary, includeMarketing]);
+  const dailyView = useMemo(() => {
+    if (!daily) return null;
+    return includeMarketing && daily.dailyWithMarketing ? { ...daily, daily: daily.dailyWithMarketing } : daily;
+  }, [daily, includeMarketing]);
+  const prevTotals = useMemo<PrevTotals | null>(() => {
+    if (!prevDaily) return null;
+    const rows = includeMarketing ? prevDaily.on : prevDaily.off;
+    return {
+      days: prevDaily.days,
+      netRevenue: rows.reduce((a, r) => a + r.netRevenue, 0),
+      adSpend: rows.reduce((a, r) => a + r.adSpend, 0),
+      pgFee: rows.reduce((a, r) => a + r.pgFee, 0),
+      reportCost: rows.reduce((a, r) => a + r.reportCost, 0),
+      contributionProfit: rows.reduce((a, r) => a + r.contributionProfit, 0),
+    };
+  }, [prevDaily, includeMarketing]);
+  const channelsView = useMemo(() => {
+    if (!channels || !includeMarketing) return channels;
+    const pick = <T extends { mer: number | null; adSpend: number; merWithMarketing?: number | null; adSpendWithMarketing?: number }>(c: T | null) =>
+      c && c.merWithMarketing !== undefined ? { ...c, mer: c.merWithMarketing, adSpend: c.adSpendWithMarketing ?? c.adSpend } : c;
+    return { ...channels, cur: pick(channels.cur), prev: pick(channels.prev) };
+  }, [channels, includeMarketing]);
+  const monthly = useMemo(() => bucketMonthly(dailyView?.daily ?? []), [dailyView]);
 
   // 동시 진행 fetch 들 중 가장 최신 호출의 응답만 화면에 반영하기 위한 request id.
   // 사용자가 "전체 기간" → "오늘" 같이 빠르게 다른 범위를 누르면, PortOne cursor
@@ -381,7 +413,6 @@ export default function Dashboard() {
     setError(null);
     const qs = new URLSearchParams({ from, until });
     if (force) qs.set("force", "1");
-    if (includeMarketing) qs.set("marketing", "1");
     const q = qs.toString();
 
     // 직전 동기간: 선택 범위 바로 앞의 같은 길이 구간 (KPI 증감 비교용).
@@ -390,7 +421,6 @@ export default function Dashboard() {
     const prevFrom = addDays(prevUntil, -(len - 1));
     const prevQs = new URLSearchParams({ from: prevFrom, until: prevUntil });
     if (force) prevQs.set("force", "1");
-    if (includeMarketing) prevQs.set("marketing", "1");
 
     // 채널 성과는 Mixpanel 조회가 붙어 다른 카드보다 늦을 수 있어 따로 기다린다.
     setChannelsLoading(true);
@@ -429,17 +459,9 @@ export default function Dashboard() {
       if (dRes.ok) setDaily(dJson);
       if (cRes.ok) setCampaigns(cJson);
       if (prevRes.ok && Array.isArray(prevJson?.daily)) {
-        const rows: DailyRow[] = prevJson.daily;
-        setPrevTotals({
-          days: len,
-          netRevenue: rows.reduce((a, r) => a + r.netRevenue, 0),
-          adSpend: rows.reduce((a, r) => a + r.adSpend, 0),
-          pgFee: rows.reduce((a, r) => a + r.pgFee, 0),
-          reportCost: rows.reduce((a, r) => a + r.reportCost, 0),
-          contributionProfit: rows.reduce((a, r) => a + r.contributionProfit, 0),
-        });
+        setPrevDaily({ days: len, off: prevJson.daily, on: prevJson.dailyWithMarketing ?? prevJson.daily });
       } else {
-        setPrevTotals(null);
+        setPrevDaily(null);
       }
     } catch (e: any) {
       if (reqIdRef.current !== myId) return;
@@ -447,26 +469,25 @@ export default function Dashboard() {
     } finally {
       if (reqIdRef.current === myId) setLoading(false);
     }
-  }, [from, until, includeMarketing]);
+  }, [from, until]);
 
   useEffect(() => {
-    if (!marketingReady) return;
     load(false);
     // unmount / 다음 load 시작 시 stale 응답을 모두 폐기.
     return () => { reqIdRef.current++; };
-  }, [load, marketingReady]);
+  }, [load]);
 
   // 화면 순매출 = PortOne 콘솔 순거래액 = payments.netRevenue (단일 진실)
   // summary.totals.netRevenue 도 같은 값이지만 위 값을 우선 사용해 UI 동기화 보장.
-  const sourceNetRevenue = payments?.netRevenue ?? summary?.totals.netRevenue ?? 0;
+  const sourceNetRevenue = payments?.netRevenue ?? summaryView?.totals.netRevenue ?? 0;
 
-  const metaError = summary?.metaError || daily?.metaError || campaigns?.metaError || null;
+  const metaError = summaryView?.metaError || dailyView?.metaError || campaigns?.metaError || null;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
       <Header
         fetchedAt={payments?.fetchedAt}
-        cached={Boolean(payments?.cached && summary?.cached && daily?.cached)}
+        cached={Boolean(payments?.cached && summaryView?.cached && dailyView?.cached)}
         theme={theme}
         onToggleTheme={toggleTheme}
       />
@@ -491,28 +512,28 @@ export default function Dashboard() {
 
       {/* ── 1. 상단 KPI 스트립 ─────────────────────────────────────────── */}
       <KpiStrip
-        totals={summary?.totals}
-        adBreakdown={summary?.adBreakdown}
+        totals={summaryView?.totals}
+        adBreakdown={summaryView?.adBreakdown}
         includeMarketing={includeMarketing}
         onToggleMarketing={toggleMarketing}
         sourceNetRevenue={sourceNetRevenue}
-        daily={daily?.daily ?? []}
+        daily={dailyView?.daily ?? []}
         prev={prevTotals}
         pal={pal}
       />
 
       {/* ── 1-1. 채널 성과 (매출 유입 경로 · 메타 귀속 ROAS) ─────────────── */}
-      <ChannelSection data={channels} loading={channelsLoading} theme={theme} />
+      <ChannelSection data={channelsView} loading={channelsLoading} theme={theme} />
 
       {/* ── 1-2. 세트 판매 (채널 성과와 같은 결제·귀속 데이터) ───────────────── */}
-      {channels?.cur?.sets && (
+      {channelsView?.cur?.sets && (
         <div className="mt-4">
           <CollapsibleCard
             title="세트 판매"
-            subtitle={`세트 ${channels.cur.sets.n.toLocaleString("ko-KR")}건 · 전체 고객 기준`}
+            subtitle={`세트 ${channelsView!.cur!.sets.n.toLocaleString("ko-KR")}건 · 전체 고객 기준`}
             defaultOpen
           >
-            <SetSales sets={channels.cur.sets} theme={theme} />
+            <SetSales sets={channelsView!.cur!.sets} theme={theme} />
           </CollapsibleCard>
         </div>
       )}
@@ -522,22 +543,22 @@ export default function Dashboard() {
         <Card className="lg:col-span-2">
           <CardHeader
             title="일별 손익"
-            badge={daily
-              ? daily.daily.length > MONTHLY_THRESHOLD
-                ? `${daily.daily.length}일 · 월별 표시`
-                : `${daily.daily.length}일`
+            badge={dailyView
+              ? dailyView.daily.length > MONTHLY_THRESHOLD
+                ? `${dailyView.daily.length}일 · 월별 표시`
+                : `${dailyView.daily.length}일`
               : "—"}
           />
-          <DailyProfitChart rows={daily?.daily ?? []} pal={pal} />
+          <DailyProfitChart rows={dailyView?.daily ?? []} pal={pal} />
         </Card>
         <Card>
           <CardHeader title="기간 요약" badge={`${from} ~ ${until}`} />
-          <PeriodSummaryCard totals={summary?.totals} daily={daily?.daily ?? []} sourceNetRevenue={sourceNetRevenue} />
+          <PeriodSummaryCard totals={summaryView?.totals} daily={dailyView?.daily ?? []} sourceNetRevenue={sourceNetRevenue} />
         </Card>
       </div>
 
       {/* ── 2.5. 월별 추이 (31일 초과 범위) ─────────────────────────────── */}
-      {monthly.length >= 2 && (daily?.daily.length ?? 0) > 31 && (
+      {monthly.length >= 2 && (dailyView?.daily.length ?? 0) > 31 && (
         <div className="mt-4 space-y-4">
           <Card>
             <CardHeader title="월별 매출 · 광고비 · MER 추이" badge={`${monthly.length}개월`} />
@@ -557,19 +578,19 @@ export default function Dashboard() {
             title="MER vs 손익분기"
             badge="전체 결제매출 ÷ 광고비 · 일별"
           />
-          <RoasChart rows={daily?.daily ?? []} pal={pal} />
+          <RoasChart rows={dailyView?.daily ?? []} pal={pal} />
         </Card>
         <Card>
           <CardHeader title="비용 구조" />
-          <CostStructureBar totals={summary?.totals} pal={pal} />
+          <CostStructureBar totals={summaryView?.totals} pal={pal} />
         </Card>
         <Card>
           <CardHeader title="인사이트" />
           <InsightPanel
-            totals={summary?.totals}
-            daily={daily?.daily ?? []}
+            totals={summaryView?.totals}
+            daily={dailyView?.daily ?? []}
             sourceNetRevenue={sourceNetRevenue}
-            settings={summary?.settings}
+            settings={summaryView?.settings}
           />
         </Card>
       </div>
@@ -584,7 +605,7 @@ export default function Dashboard() {
       {/* ── 4. 하단 상세 (접기 가능) ────────────────────────────────────── */}
       <div className="mt-8 space-y-4">
         <CollapsibleCard title="일별 손익 표" defaultOpen={false}>
-          <DailyTable rows={daily?.daily ?? []} loading={loading} />
+          <DailyTable rows={dailyView?.daily ?? []} loading={loading} />
         </CollapsibleCard>
 
         <CollapsibleCard
