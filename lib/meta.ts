@@ -521,6 +521,74 @@ export function aggregateMetaByCampaign(rows: MetaInsightRow[]): CampaignAggrega
     .sort((a, b) => b.spend - a.spend);
 }
 
+/** 광고 1개의 URL 매개변수 → 캠페인. 수동 utm 태그(264QS 등)를 캠페인 ID 로 잇는 데 쓴다 (lib/channel.ts). */
+export type AdTagRef = { campaignId: string; campaignName: string; camp: string; cont: string };
+
+/**
+ * 광고 크리에이티브의 url_tags 에서 utm_campaign·utm_content 를 읽는다.
+ * 칸에 전체 URL 이 들어간 광고도 있어 '?' 뒤만 본다. {{campaign.id}} 같은 매크로는 실제 값이 캠페인 ID 라
+ * ID 매칭이 처리하므로 null (content 매크로는 빈 값).
+ */
+export function parseUrlTags(raw: string): { camp: string; cont: string } | null {
+  const q = raw.includes("?") ? raw.slice(raw.indexOf("?") + 1) : raw;
+  const p = new URLSearchParams(q);
+  const camp = (p.get("utm_campaign") || "").trim();
+  if (!camp || camp.includes("{{")) return null;
+  const cont = (p.get("utm_content") || "").trim();
+  return { camp, cont: cont.includes("{{") ? "" : cont };
+}
+
+/**
+ * 광고계정(신규) 전체 광고의 url_tags. 수동 태그가 어느 캠페인 광고에 붙어 있는지 Meta 에서 직접 받아
+ * 캠페인 이름 키워드 추측을 대신한다 (2026-11-02: 264QS 가 연애·4Q시딩 두 캠페인에 utm_content 만 달리 쓰임).
+ */
+export async function fetchAdUrlTags(): Promise<AdTagRef[]> {
+  const main = mainAccount();
+  const out: AdTagRef[] = [];
+  const baseParams = new URLSearchParams({
+    access_token: main.tok,
+    fields: "campaign_id,campaign{name},creative{url_tags}",
+    // 중첩 필드라 한 번에 많이 받으면 'Please reduce the amount of data' 오류가 나기 쉬움
+    limit: "200",
+    effective_status: JSON.stringify([
+      "ACTIVE", "PAUSED", "CAMPAIGN_PAUSED", "ADSET_PAUSED", "ARCHIVED",
+      "IN_PROCESS", "WITH_ISSUES", "PENDING_REVIEW", "DISAPPROVED",
+    ]),
+  });
+
+  let after: string | undefined;
+  for (let i = 0; i < 50; i++) {
+    const params = new URLSearchParams(baseParams);
+    if (after) params.set("after", after);
+    const url = `${GRAPH}/${apiVersion()}/${main.id}/ads?${params.toString()}`;
+
+    let res: Response;
+    try {
+      res = await fetch(url, { method: "GET", cache: "no-store" });
+    } catch (e: any) {
+      throw new MetaApiError(0, `네트워크 오류로 Meta API 호출이 실패했습니다: ${e?.message || e}`, "fetch_failed");
+    }
+    let body: any = null;
+    try { body = await res.json(); } catch { body = null; }
+
+    if (!res.ok) {
+      throw new MetaApiError(res.status, humanizeMetaError(res.status, body), `meta_ads_status_${res.status}`);
+    }
+
+    const items: any[] = Array.isArray(body?.data) ? body.data : [];
+    for (const it of items) {
+      const tags = parseUrlTags(String(it?.creative?.url_tags || ""));
+      const campaignId = String(it?.campaign_id || "");
+      if (tags && campaignId) out.push({ campaignId, campaignName: String(it?.campaign?.name || ""), ...tags });
+    }
+
+    const next = body?.paging?.cursors?.after as string | undefined;
+    if (!body?.paging?.next || !next) break;
+    after = next;
+  }
+  return out;
+}
+
 /**
  * 활성/최근 캠페인의 daily_budget / lifetime_budget 을 한 번에 fetch.
  *

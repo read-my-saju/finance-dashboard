@@ -11,13 +11,15 @@ import { fetchCombinedPayments } from "./payments-source";
 import {
   aggregateMetaByCampaign,
   aggregateMetaByDay,
+  fetchAdUrlTags,
   fetchCampaignBudgets,
+  type AdTagRef,
   type MetaCampaignBudget,
   type MetaInsightRow,
 } from "./meta";
 import { loadIncrementalRows } from "./meta-store";
 import { computeProfit, type ProfitSummary } from "./profit";
-import { AI_API_PAYMENTS, SEEDING_AD_COSTS, manualByDay } from "./manual-costs";
+import { AI_API_PAYMENTS, NAVER_AD_COSTS, SEEDING_AD_COSTS, spreadByMonth, totalInRange } from "./manual-costs";
 import { MixpanelConfigError } from "./mixpanel";
 import { loadStoredAttributions } from "./mixpanel-store";
 import { buildChannelPeriod, campaignRefs, type ChannelPeriod } from "./channel-revenue";
@@ -31,6 +33,8 @@ type CacheEntry = {
   metaRows: MetaInsightRow[];
   // 캠페인 예산은 기간과 무관하므로 한 번 받아 같은 entry 안에서 재사용.
   metaBudgets: Map<string, MetaCampaignBudget>;
+  // 광고별 url_tags (수동 utm 태그 → 캠페인). 받기 실패면 빈 배열 → 캠페인 이름 키워드 규칙으로 동작.
+  adTags: AdTagRef[];
   metaError: string | null;
 };
 
@@ -41,6 +45,21 @@ const cache = new Map<string, CacheEntry>();
 function freshEntry(key: string): CacheEntry | null {
   const e = cache.get(key);
   return e && e.expiresAt > Date.now() ? e : null;
+}
+
+// 광고 url_tags 는 기간과 무관 — 이번·이전 기간 entry 가 같이 쓰도록 10분간 한 번만 받는다.
+const AD_TAGS_TTL_MS = 10 * 60 * 1000;
+let adTagsCache: { at: number; tags: AdTagRef[] } | null = null;
+
+async function loadAdTags(force: boolean): Promise<AdTagRef[]> {
+  if (!force && adTagsCache && Date.now() - adTagsCache.at < AD_TAGS_TTL_MS) return adTagsCache.tags;
+  try {
+    adTagsCache = { at: Date.now(), tags: await fetchAdUrlTags() };
+    return adTagsCache.tags;
+  } catch (e: any) {
+    console.warn("[dashboard-cache] fetchAdUrlTags failed:", String(e?.message || e).slice(0, 200));
+    return adTagsCache?.tags ?? [];
+  }
 }
 
 export type LoadOptions = {
@@ -83,6 +102,7 @@ async function loadRawData(opts: LoadOptions): Promise<CacheEntry> {
   } catch (e: any) {
     console.warn("[dashboard-cache] fetchCampaignBudgets failed:", String(e?.message || e).slice(0, 200));
   }
+  const adTags = await loadAdTags(Boolean(opts.force));
 
   const entry: CacheEntry = {
     key,
@@ -90,6 +110,7 @@ async function loadRawData(opts: LoadOptions): Promise<CacheEntry> {
     payments,
     metaRows,
     metaBudgets,
+    adTags,
     metaError,
   };
   cache.delete(key);
@@ -98,10 +119,13 @@ async function loadRawData(opts: LoadOptions): Promise<CacheEntry> {
   return entry;
 }
 
+/** 광고비 카드 내역: 메타 + 시딩(월 일할) + 네이버 검색광고(월 일할). */
+export type AdBreakdown = { meta: number; seeding: number; naver: number };
+
 export async function loadProfitSummary(opts: LoadOptions & {
   pgFeeRate?: number;
   reportCostPerUnit?: number;
-}): Promise<{ summary: ProfitSummary; metaError: string | null; cached: boolean }> {
+}): Promise<{ summary: ProfitSummary; adBreakdown: AdBreakdown; metaError: string | null; cached: boolean }> {
   const wasCached = !opts.force && freshEntry(`${opts.from}|${opts.until}`) !== null;
   const entry = await loadRawData(opts);
   const metaByDay = aggregateMetaByDay(entry.metaRows);
@@ -112,10 +136,13 @@ export async function loadProfitSummary(opts: LoadOptions & {
     range,
     pgFeeRate: opts.pgFeeRate,
     reportCostPerUnit: opts.reportCostPerUnit,
-    extraAdByDay: manualByDay(SEEDING_AD_COSTS, range),
-    extraReportCostByDay: manualByDay(AI_API_PAYMENTS, range),
+    extraAdByDay: [...spreadByMonth(SEEDING_AD_COSTS, range), ...spreadByMonth(NAVER_AD_COSTS, range)],
+    extraReportCostByDay: spreadByMonth(AI_API_PAYMENTS, range),
   });
-  return { summary, metaError: entry.metaError, cached: Boolean(wasCached) };
+  const seeding = totalInRange(SEEDING_AD_COSTS, range);
+  const naver = totalInRange(NAVER_AD_COSTS, range);
+  const adBreakdown = { meta: summary.totals.adSpend - seeding - naver, seeding, naver };
+  return { summary, adBreakdown, metaError: entry.metaError, cached: Boolean(wasCached) };
 }
 
 export type MetaCampaignRow = {
@@ -214,6 +241,7 @@ export async function loadChannelRevenue(opts: LoadOptions): Promise<{
   error: string | null;
   attributionAsOf: number | null;
   attributionStale: boolean;
+  adTagCount?: number;     // Meta 에서 받은 광고 url_tags 수. 0 이면 키워드 규칙으로만 분류됨
 }> {
   // 요청 기간이 데이터 시작일 이전을 포함하면 시작일부터만 본다.
   // 비교 기간이 시작일 앞을 걸치면 대부분 미귀속이 돼 증감이 거짓이 되므로 비교 기간도 생략.
@@ -259,6 +287,7 @@ export async function loadChannelRevenue(opts: LoadOptions): Promise<{
       metaRows: raw.metaRows.filter((m) => m.date >= r.from),
       attributions: byTx,
       campaigns,
+      adTags: curRaw.adTags,
       range: r,
     });
   return {
@@ -269,5 +298,6 @@ export async function loadChannelRevenue(opts: LoadOptions): Promise<{
     error: curRaw.metaError,
     attributionAsOf: stored.asOf,
     attributionStale: stored.stale,
+    adTagCount: curRaw.adTags.length,
   };
 }

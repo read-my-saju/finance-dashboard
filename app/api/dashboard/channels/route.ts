@@ -8,6 +8,7 @@
  *   attributionAsOf: 유입 귀속(Mixpanel) 중 아직 확정 전인 날짜의 조회 시각 (모두 확정이면 null). 15분마다 갱신.
  *   attributionStale: Mixpanel 조회가 실패해(한도 초과 등) 저장해 둔 귀속으로 계산했으면 true.
  *   clampedFrom: 요청 기간이 데이터 시작일(2026-09-03) 이전을 포함해 그날부터만 집계했으면 그 날짜 (비교 기간 없음).
+ *   adTagCount: Meta 에서 받은 광고 url_tags 수 (수동 utm 태그 → 캠페인 매핑). 0 이면 캠페인 이름 키워드로만 분류.
  *   cur/prev 가 null 이면 error 에 사유 (Mixpanel 환경변수 없음 등).
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest) {
   const force = searchParams.get("force") === "1";
 
   try {
-    const { cur, prev, prevRange, clampedFrom, error, attributionAsOf, attributionStale } = await loadChannelRevenue({ from, until, force });
+    const { cur, prev, prevRange, clampedFrom, error, attributionAsOf, attributionStale, adTagCount } = await loadChannelRevenue({ from, until, force });
     return NextResponse.json({
       range: { from, until },
       prevRange,
@@ -37,6 +38,7 @@ export async function GET(req: NextRequest) {
       fetchedAt: new Date().toISOString(),
       attributionAsOf: attributionAsOf ? new Date(attributionAsOf).toISOString() : null,
       attributionStale,
+      adTagCount: adTagCount ?? 0,
       cur,
       prev,
       error,
