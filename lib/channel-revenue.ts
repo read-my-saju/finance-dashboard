@@ -74,6 +74,9 @@ export type ChannelPeriod = {
   payments: number;
   adSpend: number;
   mer: number | null;
+  // 화면 '시딩·브랜딩' 스위치를 켰을 때 값 (광고비에 시딩·브랜딩 포함)
+  adSpendWithMarketing: number;
+  merWithMarketing: number | null;
   metaRoas: number | null;
   metaBreakEvenRoas: number;
   metaRoasLow: number | null;
@@ -171,10 +174,9 @@ export function buildChannelPeriod(args: {
   attributions: Map<string, PurchaseAttribution>;
   campaigns: CampaignRef[];
   adTags?: AdTagRef[];
-  includeMarketing?: boolean;
   range: Range;
 }): ChannelPeriod {
-  const { payments, metaRows, attributions, campaigns, adTags = [], includeMarketing = false, range } = args;
+  const { payments, metaRows, attributions, campaigns, adTags = [], range } = args;
 
   const tagged: Tagged[] = payments.map((p) => {
     const a = p.orderId ? attributions.get(p.orderId) : undefined;
@@ -223,14 +225,16 @@ export function buildChannelPeriod(args: {
     return { date, rev, newRev };
   });
 
-  // 회사 전체는 위 KPI 와 같은 숫자가 되도록 네이버·API 결제액(+ 켜졌으면 시딩·브랜딩)을 넣는다. 시딩·브랜딩은 채널·캠페인 행에는 안 넣는다.
-  const total = computeProfit({
+  // 회사 전체는 위 KPI 와 같은 숫자가 되도록 네이버·API 결제액을 넣는다(시딩·브랜딩 포함본은 따로). 채널·캠페인 행에는 안 넣는다.
+  const companyTotal = (withMarketing: boolean) => computeProfit({
     payments,
     metaByDay: aggregateMetaByDay(metaRows),
     range,
-    extraAdByDay: [...spreadByMonth(NAVER_AD_COSTS, range), ...(includeMarketing ? marketingByDay(range) : [])],
+    extraAdByDay: [...spreadByMonth(NAVER_AD_COSTS, range), ...(withMarketing ? marketingByDay(range) : [])],
     extraReportCostByDay: spreadByMonth(AI_API_PAYMENTS, range),
   }).totals;
+  const total = companyTotal(false);
+  const totalMk = companyTotal(true);
   const restored = computeProfit({ payments: tagged.filter((t) => t.restored).map((t) => t.p), metaByDay: [], range }).totals;
   const viaDiscount = computeProfit({ payments: tagged.filter((t) => t.viaDiscount).map((t) => t.p), metaByDay: [], range }).totals;
   const meta = groups[0];
@@ -244,6 +248,8 @@ export function buildChannelPeriod(args: {
     payments: total.reportCount,
     adSpend: total.adSpend,
     mer: total.roas,
+    adSpendWithMarketing: totalMk.adSpend,
+    merWithMarketing: totalMk.roas,
     metaRoas: meta.roas,
     metaBreakEvenRoas: meta.breakEvenRoas,
     metaRoasLow: roasRange.low,
