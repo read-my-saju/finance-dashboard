@@ -543,10 +543,10 @@ export default function Dashboard() {
         <Card className="lg:col-span-2">
           <CardHeader
             title="일별 손익"
-            badge={daily
-              ? daily.daily.length > MONTHLY_THRESHOLD
-                ? `${daily.daily.length}일 · 월별 표시`
-                : `${daily.daily.length}일`
+            badge={dailyView
+              ? dailyView.daily.length > MONTHLY_THRESHOLD
+                ? `${dailyView.daily.length}일 · 월별 표시`
+                : `${dailyView.daily.length}일`
               : "—"}
           />
           <DailyProfitChart rows={dailyView?.daily ?? []} pal={pal} />
