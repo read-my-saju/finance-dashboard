@@ -523,6 +523,11 @@ function ChannelTable({ cur, mode, colors, focus }: { cur: ChannelPeriod; mode: 
           <span className="block h-full rounded-full bg-gray-500 dark:bg-zinc-400" style={{ width: `${cur.coverage ?? 0}%` }} />
         </span>
         <span className="tabular-nums">방문기록으로 복원 {NUM.format(cur.restoredCount)}건 · 미귀속 {NUM.format(cur.unattributedCount)}건</span>
+        {cur.discountViaMeta?.n > 0 && (
+          <span className="tabular-nums" title="시딩 광고 → 댓글 → DM 할인 링크 → 결제. 결제 전 7일 안에 메타 광고를 클릭해 들어온 기록이 있는 할인 링크 결제는 인플루언서가 아니라 그 메타 캠페인 매출로 넣었어요.">
+            할인 링크 중 메타 광고 경유 {NUM.format(cur.discountViaMeta.n)}건 ({won(cur.discountViaMeta.rev)}) → 메타 캠페인에 포함
+          </span>
+        )}
         <Info text={TIPS.cov} label="귀속률" />
         <span className="text-gray-400 dark:text-zinc-500">손익분기 {pct(bep)} = 매출에서 VAT·PG 수수료·AI 원가를 빼고 남는 만큼만 광고비를 쓴 상태</span>
       </div>

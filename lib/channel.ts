@@ -14,6 +14,7 @@
  */
 
 import type { AdTagRef } from "./meta";
+import { influencerName } from "./influencers";
 
 export type ChannelGroup = "meta" | "search" | "search_ad" | "owned" | "influencer" | "referral" | "unattributed";
 
@@ -40,6 +41,10 @@ export type PurchaseAttribution = {
   camp?: string;
   cont?: string;
   inf?: string;            // influencer_code
+  term?: string;           // utm_term — 할인 링크 추적값 (lib/influencers.ts)
+  // 할인 링크 결제인데 결제 전 7일 안에 메타 광고 링크로 들어온 방문이 있으면 그 방문의 utm (lib/mixpanel.ts).
+  // 시딩 광고 → 댓글 → DM 할인 링크 → 결제 흐름에서 광고가 만든 매출을 메타 캠페인에 돌려준다 (2026-11-03).
+  viaMeta?: { src?: string; med?: string; camp?: string; cont?: string };
   fbclid?: boolean;
   ref?: string;            // 외부 referring domain
   app?: "IG" | "FB" | "KAKAO" | "NAVER";
@@ -52,6 +57,7 @@ export type ChannelResult = {
   group: ChannelGroup;
   detail: string;          // 표의 세부 행 이름
   campaignId?: string;     // 메타 캠페인으로 확정된 경우
+  viaDiscount?: boolean;   // 할인 링크 결제를 결제 전 메타 광고 클릭으로 메타에 넣은 경우
 };
 
 // 수동 UTM 태그 → 캠페인 이름 키워드. 광고 url_tags 표에 없을 때만 쓰는 예비 규칙.
@@ -91,16 +97,28 @@ function byUtm(a: PurchaseAttribution, campaigns: CampaignRef[], tags: AdTagRef[
   const med = (a.med || "").toLowerCase();
   const camp = a.camp || "";
   if (src === "claudetest") return { group: "unattributed", detail: "내부 테스트" };
-  if (a.inf) return { group: "influencer", detail: `할인 링크 ${a.inf}` };
+  // 카카오 채널·메시지는 할인 코드가 붙어도 우리가 보낸 링크 (263Q_p 푸리 고객 = 9/25 추석 카카오, 2026-11-03 사장님 결정)
+  if (src === "kko" || src === "kakao") {
+    return { group: "owned", detail: src === "kko" && med === "ms" ? "카카오 메시지" : OWNED_SOURCE[src] };
+  }
+  // 할인 링크 결제: 결제 전 메타 광고 클릭이 있으면 그 메타 캠페인, 아니면 인플루언서(이름은 콘솔 목록)
+  const discount = (fallback: string): ChannelResult => {
+    if (a.viaMeta) {
+      const viaAd = byUtm({ ...a, ...a.viaMeta, inf: undefined, term: undefined, viaMeta: undefined }, campaigns, tags);
+      if (viaAd.group === "meta") return { ...viaAd, viaDiscount: true };
+    }
+    return { group: "influencer", detail: influencerName(a.inf, a.term) ?? fallback };
+  };
+  if (a.inf) return discount(`할인 링크 ${a.inf}`);
   // 메타 광고 URL 매개변수에 실제로 있는 태그면 유료 광고 클릭 — utm_medium=inf 인 파트너십 광고도 메타 (2026-11-02 사장님 결정)
   const byId = campaigns.find((c) => c.id === camp);
   if (byId) return { group: "meta", detail: byId.name, campaignId: byId.id };
   const byTag = camp ? byAdTag(camp, a.cont || "", campaigns, tags) : undefined;
   if (byTag) return { group: "meta", detail: byTag.name, campaignId: byTag.id };
-  if (med === "inf") return { group: "influencer", detail: camp || "인플루언서" };
-  // 카카오 채널·메시지는 우리가 보낸 링크 (kko/ms = 카카오 메시지, 2026-11-02)
-  if (med === "social" || med === "profile" || a.cont === "link_in_bio" || src === "kko" || src === "kakao") {
-    return { group: "owned", detail: src === "kko" && med === "ms" ? "카카오 메시지" : OWNED_SOURCE[src] || src || "자사 SNS" };
+  // 할인 코드 없이 링크 UTM 만 남은 할인 링크 결제(토큰 유실 등). 8월 초기 링크는 utm_medium=influencer
+  if (med === "inf" || med === "influencer") return discount(camp || "인플루언서");
+  if (med === "social" || med === "profile" || a.cont === "link_in_bio") {
+    return { group: "owned", detail: OWNED_SOURCE[src] || src || "자사 SNS" };
   }
   for (const [re, keyword] of MANUAL_TAG_KEYWORD) {
     if (re.test(camp)) {
