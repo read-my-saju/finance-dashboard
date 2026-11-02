@@ -157,23 +157,25 @@ function useTheme(): [Theme, () => void] {
 /**
  * '시딩·브랜딩 포함' 버튼 상태. 기본은 꺼짐 = 광고비는 메타 + 네이버만 (매일 광고 효율용).
  * 켜면 시딩·브랜딩(그 달 일수로 나눔)을 광고비에 더한다 — 월말 종합 손익용. 브라우저에 기억.
+ * ready = 저장값을 읽었는지. 읽기 전에 불러오면 꺼짐·켜짐으로 무거운 요청이 두 번 나가서 그 전엔 안 불러온다.
  */
-function useIncludeMarketing(): [boolean, () => void] {
+function useIncludeMarketing(): [boolean, () => void, boolean] {
   const [on, setOn] = useState(false);
+  const [ready, setReady] = useState(false);
   useEffect(() => {
     try {
       setOn(localStorage.getItem("rmsf_marketing") === "1");
     } catch {}
+    setReady(true);
   }, []);
-  const toggle = useCallback(() => {
-    setOn((prev) => {
-      try {
-        localStorage.setItem("rmsf_marketing", prev ? "0" : "1");
-      } catch {}
-      return !prev;
-    });
-  }, []);
-  return [on, toggle];
+  useEffect(() => {
+    if (!ready) return;
+    try {
+      localStorage.setItem("rmsf_marketing", on ? "1" : "0");
+    } catch {}
+  }, [on, ready]);
+  const toggle = useCallback(() => setOn((prev) => !prev), []);
+  return [on, toggle, ready];
 }
 
 // Recharts 는 SVG 속성에 hex 를 직접 받으므로 테마별 팔레트 객체로 공급.
@@ -362,7 +364,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [theme, toggleTheme] = useTheme();
-  const [includeMarketing, toggleMarketing] = useIncludeMarketing();
+  const [includeMarketing, toggleMarketing, marketingReady] = useIncludeMarketing();
   const pal = theme === "dark" ? DARK_PAL : LIGHT_PAL;
   const monthly = useMemo(() => bucketMonthly(daily?.daily ?? []), [daily]);
 
@@ -448,10 +450,11 @@ export default function Dashboard() {
   }, [from, until, includeMarketing]);
 
   useEffect(() => {
+    if (!marketingReady) return;
     load(false);
     // unmount / 다음 load 시작 시 stale 응답을 모두 폐기.
     return () => { reqIdRef.current++; };
-  }, [load]);
+  }, [load, marketingReady]);
 
   // 화면 순매출 = PortOne 콘솔 순거래액 = payments.netRevenue (단일 진실)
   // summary.totals.netRevenue 도 같은 값이지만 위 값을 우선 사용해 UI 동기화 보장.
@@ -687,11 +690,11 @@ function FilterBar({
         aria-checked={includeMarketing}
         onClick={onToggleMarketing}
         title="켜면 시딩·브랜딩 비용(그 달 일수로 나눔)을 광고비에 더해 월말 종합 손익으로 봅니다. 끄면 메타 + 네이버 광고비만으로 매일 광고 효율을 봅니다."
-        className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${includeMarketing
+        className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${includeMarketing
           ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
           : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"}`}
       >
-        <span className={`relative inline-block h-4 w-7 rounded-full transition-colors ${includeMarketing ? "bg-violet-500" : "bg-gray-300 dark:bg-zinc-600"}`}>
+        <span aria-hidden="true" className={`relative inline-block h-4 w-7 rounded-full transition-colors ${includeMarketing ? "bg-violet-500" : "bg-gray-300 dark:bg-zinc-600"}`}>
           <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${includeMarketing ? "left-3.5" : "left-0.5"}`} />
         </span>
         시딩·브랜딩 포함

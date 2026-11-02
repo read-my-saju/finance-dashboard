@@ -99,4 +99,15 @@ assert.equal(Math.round(m.totals.extraAdSpend), 3_800_000);
 // 일별 합 = 기간 합계
 assert.equal(m.daily.reduce((s, d) => s + d.contributionProfit, 0).toFixed(2), m.totals.contributionProfit.toFixed(2));
 
+// '시딩·브랜딩 포함' 꺼짐(기본)·켜짐: 광고비 차이 = 그 기간 시딩 + 브랜딩, 결제수수료·리포트 원가는 같음 (리뷰 MEDIUM)
+const wk = { from: "2026-10-27", until: "2026-11-02" };
+const base = { payments: [], metaByDay: [{ date: "2026-10-28", spend: 300_000 }], range: wk, extraReportCostByDay: spreadByMonth(AI_API_PAYMENTS, wk) };
+const off = computeProfit({ ...base, extraAdByDay: spreadByMonth(NAVER_AD_COSTS, wk) });
+const on = computeProfit({ ...base, extraAdByDay: [...spreadByMonth(NAVER_AD_COSTS, wk), ...marketingByDay(wk)] });
+const mk = totalInRange(SEEDING_COSTS, wk) + totalInRange(BRANDING_COSTS, wk);
+assert.equal(Math.round(off.totals.adSpend), 300_000, "꺼짐 = 메타(+네이버)만");
+assert.equal(Math.round(on.totals.adSpend - off.totals.adSpend), Math.round(mk), "켜짐 차이 = 시딩 + 브랜딩");
+assert.equal(Math.round(mk), Math.round((1_600_000 / 31 + 2_200_000 / 31) * 5 + (11_000_000 / 30) * 2));
+assert.equal(on.totals.reportCost, off.totals.reportCost);
+
 console.log("calc.test OK");
