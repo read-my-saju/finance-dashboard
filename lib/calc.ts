@@ -9,7 +9,7 @@
  *                              (PG 는 결제금액 전체에 요율을 매김. 토스 정산: payOutAmount = amount − fee.
  *                               수수료 부가세는 매입세액공제 대상이라 원가에 넣지 않음 — 2026-09-08 수정)
  *   리포트 생성원가          = 결제완료 건수 × 건당원가(결제일별: ~2026-04 250 / 2026-05 266 / 2026-06 390 / 2026-07 870 / 2026-08 750 / 2026-09 1590)
- *                              2026-10~ 는 건당 0원 + Claude·OpenAI API 실제 결제액(lib/manual-costs.ts, 그 달 일수로 나눠 매일)
+ *                              2026-10~ 는 건당 500원(이미지 생성) + Claude·OpenAI API 실제 결제액(lib/manual-costs.ts, 그 달 일수로 나눠 매일)
  *   광고비                   = 메타 지출 + 네이버 검색광고 (+ 화면에서 켜면 시딩·브랜딩, lib/manual-costs.ts 일할). 시딩·브랜딩은 메타 캠페인·채널 ROAS 에는 안 섞음
  *   ROAS                     = 결제매출(VAT 포함) / 광고비 × 100
  *   손익분기 ROAS (BEP)      = 결제매출(VAT포함) / 손익분기광고비 × 100 (원가구조 기반 동적)
@@ -101,14 +101,16 @@ export const BREAK_EVEN_ROAS_FALLBACK = 118;  // 매출이 원가(PG+리포트)�
  *   OpenAI 는 platform.openai.com 사용액(VAT 미청구) × 월평균 ECB 환율 ÷ 결제 건수(질문권 포함).
  *   2026-08    : 750  (Claude $918.57 + OpenAI $417.30, 환율 1,402.99 ÷ 2,663건 = 752원)
  *   2026-09    : 1590 (Claude $3,137.28 + OpenAI $487.73, 환율 1,358.41 ÷ 3,366건 = 1,590원)
- *   2026-10~   : 0    (사장님 결정 2026-11-02: 리포트 생성원가 = Claude·OpenAI API 실제 결제액만, 나머지는 크레딧.
- *                      결제액은 lib/manual-costs.ts AI_API_PAYMENTS 를 그 달 일수로 나눠 매일 더한다)
+ *   2026-10~   : 500  (사장님 결정 2026-11-08: 리포트 이미지 생성비용 결제 1건당 500원, 성수님 확인 금액.
+ *                      그 위에 Claude·OpenAI API 실제 결제액을 lib/manual-costs.ts AI_API_PAYMENTS 로 그 달 일수로 나눠 매일 더한다.
+ *                      2026-11-02 결정 때는 API 결제액만 넣어 OpenAI 크레딧으로 낸 이미지 비용이 빠져 있었다)
  */
 export const REPORT_COST_PER_UNIT_2026_05 = 266;
 export const REPORT_COST_PER_UNIT_2026_06 = 390;
 export const REPORT_COST_PER_UNIT_2026_07 = 870;
 export const REPORT_COST_PER_UNIT_2026_08 = 750;
 export const REPORT_COST_PER_UNIT_2026_09 = 1590;
+export const REPORT_COST_PER_UNIT_2026_10 = 500;
 export const REPORT_COST_API_PAYMENTS_FROM = "2026-10-01";
 
 /** 결제 시각까지 보는 건당 원가. 하루 중간에 단가가 바뀌는 구간이 생기면 여기서 가른다. */
@@ -124,7 +126,7 @@ export function reportCostPerUnitForDate(
   date: string,
   base: number = DEFAULT_REPORT_COST_PER_UNIT,
 ): number {
-  if (date >= REPORT_COST_API_PAYMENTS_FROM) return 0;
+  if (date >= REPORT_COST_API_PAYMENTS_FROM) return REPORT_COST_PER_UNIT_2026_10;
   if (date >= "2026-09-01") return REPORT_COST_PER_UNIT_2026_09;
   if (date >= "2026-08-01") return REPORT_COST_PER_UNIT_2026_08;
   if (date >= "2026-07-01") return REPORT_COST_PER_UNIT_2026_07;
