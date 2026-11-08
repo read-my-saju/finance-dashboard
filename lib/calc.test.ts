@@ -46,8 +46,10 @@ assert.equal(reportCostPerUnitForDate("2026-08-01"), 750);
 assert.equal(reportCostPerUnitForDate("2026-08-31"), 750);
 assert.equal(reportCostPerUnitForDate("2026-09-01"), 1590);
 assert.equal(reportCostPerUnitForDate("2026-09-30"), 1590);
-// 2026-10~ 건당 0원 (API 실제 결제액은 manual-costs 로 따로)
-assert.equal(reportCostPerUnitForDate("2026-10-01"), 0);
+// 2026-10~ 건당 500원 = 이미지 생성 (API 실제 결제액은 manual-costs 로 따로)
+assert.equal(reportCostPerUnitForDate("2026-09-30"), 1590);
+assert.equal(reportCostPerUnitForDate("2026-10-01"), 500);
+assert.equal(reportCostPerUnitForDate("2026-11-08"), 500);
 
 // 실제 정산 메일 재현: 매출일 2026-08-13 매출액 1,778,260 → PG이용료 56,978 (오차 1% 이내)
 const s = computeProfit({
@@ -60,7 +62,7 @@ const s = computeProfit({
 assert.ok(Math.abs(s.totals.pgFee - 56_978) / 56_978 < 0.01, `settlement 2026-08-13 pgFee=${s.totals.pgFee}`);
 
 assert.equal(reportCostPerUnitAt("2026-09-30", Date.parse("2026-09-30T23:59:59+09:00")), 1590);
-assert.equal(reportCostPerUnitAt("2026-10-10", Date.parse("2026-10-10T21:00:00+09:00")), 0);
+assert.equal(reportCostPerUnitAt("2026-10-10", Date.parse("2026-10-10T21:00:00+09:00")), 500);
 
 // 2026-10~: 리포트 원가 = API 결제액, 광고비 = 메타 + 시딩·네이버. 손으로 넣은 비용은 그 달 일수로 나눠 매일 넣는다.
 const oct = { from: "2026-10-01", until: "2026-10-31" };
@@ -87,13 +89,13 @@ const m = computeProfit({
   extraReportCostByDay: spreadByMonth(AI_API_PAYMENTS, oct),
 });
 const d2 = m.daily.find((d) => d.date === "2026-10-02")!;
-assert.equal(Math.round(d2.reportCost), 30_154, "건당 원가 0 + API 결제액 하루치");
+assert.equal(Math.round(d2.reportCost), 500 + 30_154, "결제 1건 × 500 + API 결제액 하루치");
 assert.equal(Math.round(d2.adSpend), 200_000 + 122_581, "그날 메타 + 시딩 하루치");
 const d31 = m.daily.find((d) => d.date === "2026-10-31")!;
 assert.equal(Math.round(d31.reportCost), 30_154);
 assert.equal(Math.round(d31.adSpend), 122_581, "말일에 몰리지 않음");
 assert.equal(m.daily.length, 31, "결제·메타가 없는 날도 비용 행이 생김");
-assert.equal(Math.round(m.totals.reportCost), 934_769);
+assert.equal(Math.round(m.totals.reportCost), 934_769 + 500);
 assert.equal(Math.round(m.totals.adSpend), 200_000 + 3_800_000);
 assert.equal(Math.round(m.totals.extraAdSpend), 3_800_000);
 // 일별 합 = 기간 합계
