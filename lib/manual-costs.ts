@@ -7,8 +7,8 @@
  * - NAVER_AD_COSTS  : 네이버 검색광고(파워링크) 비즈머니 소진액(VAT 포함, 광고센터 결제 관리 일별 합계).
  *                     광고비 합계와 채널 '검색광고' 광고비에 들어간다. 2026-09-23 잔액 소진 후 광고 꺼짐.
  *                     첫 광고비 지원 페이백은 무상 쿠폰 49,866원(10/25 발급, 미사용)이라 비용에서 빼지 않는다.
- * - AI_API_PAYMENTS : 2026-10 부터 Claude·OpenAI API 실제 결제액 (크레딧으로 낸 사용분은 넣지 않는다).
- *                     여기에 더해 건당 500원(이미지 생성, calc.ts)이 결제마다 붙는다 (2026-11-08).
+ * - AI_API_PAYMENTS : 건당 원가(calc.ts) 밖에서 따로 낸 AI API 비용. 2026-11-08 결정으로 10월분은 건당 원가
+ *                     (10/1~10/10 1,500원, 10/11~ 500원)에 들어 있어 비워 둔다.
  *
  * 모든 항목은 date 가 속한 달의 일수로 나눠 그 달 매일에 넣는다 (사장님 결정 2026-11-02: 하루에 몰리면
  * 일별 손익·손익분기 추이가 튄다). 실제 집행 기간을 아는 비용(네이버)은 from~date 에만 나눈다.
@@ -33,10 +33,7 @@ export const NAVER_AD_COSTS: ManualCost[] = [
   { from: "2026-09-01", date: "2026-09-23", amount: 44_029, label: "네이버 파워링크 9/1~23 소진" },
 ];
 
-export const AI_API_PAYMENTS: ManualCost[] = [
-  // Claude: 롯데 AMEX 9건 513,100 + KB NEED 5건 $315.50 ≈ 421,669(10월 평균 환율 추정). OpenAI 결제 0건(크레딧).
-  { date: "2026-10-31", amount: 934_769, label: "10월 Claude·OpenAI API 결제액" },
-];
+export const AI_API_PAYMENTS: ManualCost[] = [];
 
 /** 항목을 나눌 날짜들: from~date, from 이 없으면 date 가 속한 달 전체. */
 function spreadDays(c: ManualCost): string[] {
