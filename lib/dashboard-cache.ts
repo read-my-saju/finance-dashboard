@@ -19,7 +19,7 @@ import {
 } from "./meta";
 import { loadIncrementalRows } from "./meta-store";
 import { computeProfit, type ProfitSummary } from "./profit";
-import { AI_API_PAYMENTS, BRANDING_COSTS, NAVER_AD_COSTS, SEEDING_COSTS, marketingByDay, spreadByMonth, totalInRange } from "./manual-costs";
+import { AI_API_PAYMENTS, SERVER_COSTS, BRANDING_COSTS, NAVER_AD_COSTS, SEEDING_COSTS, marketingByDay, spreadByMonth, totalInRange } from "./manual-costs";
 import { MixpanelConfigError } from "./mixpanel";
 import { loadStoredAttributions } from "./mixpanel-store";
 import { buildChannelPeriod, campaignRefs, type ChannelPeriod } from "./channel-revenue";
@@ -120,7 +120,7 @@ async function loadRawData(opts: LoadOptions): Promise<CacheEntry> {
 }
 
 /** 광고비 카드 내역. 시딩·브랜딩은 화면 스위치를 켰을 때만 광고비 합계에 들어간다(totalsWithMarketing). */
-export type AdBreakdown = { meta: number; naver: number; seeding: number; branding: number };
+export type AdBreakdown = { meta: number; naver: number; seeding: number; branding: number; server: number };
 
 export async function loadProfitSummary(opts: LoadOptions & {
   pgFeeRate?: number;
@@ -139,13 +139,14 @@ export async function loadProfitSummary(opts: LoadOptions & {
     pgFeeRate: opts.pgFeeRate,
     reportCostPerUnit: opts.reportCostPerUnit,
     extraAdByDay: [...spreadByMonth(NAVER_AD_COSTS, range), ...(withMarketing ? marketingByDay(range) : [])],
-    extraReportCostByDay: spreadByMonth(AI_API_PAYMENTS, range),
+    extraReportCostByDay: [...spreadByMonth(AI_API_PAYMENTS, range), ...spreadByMonth(SERVER_COSTS, range)],
   });
   const adBreakdown: AdBreakdown = {
     meta: metaByDay.reduce((s, r) => s + r.spend, 0),
     naver: totalInRange(NAVER_AD_COSTS, range),
     seeding: totalInRange(SEEDING_COSTS, range),
     branding: totalInRange(BRANDING_COSTS, range),
+    server: totalInRange(SERVER_COSTS, range),
   };
   return { summary: compute(false), summaryWithMarketing: compute(true), adBreakdown, metaError: entry.metaError, cached: Boolean(wasCached) };
 }

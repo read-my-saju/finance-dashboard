@@ -65,6 +65,7 @@ export const PG_FEE_RATE_TRANSFER = 0.020;
 export const PG_FEE_RATE_NAVER = 0.033;
 export const PG_FEE_RATE_DEFAULT = 0.032;
 export const PG_FEE_CUTOVER = "2026-06-19";   // 토스페이먼츠 전환일 (이 날부터 결제수단별 요율)
+export const PG_FEE_VAT_FROM = "2026-10-01";  // 이 날부터 PG 수수료에 수수료 부가세 10% 포함 (사장님 결정 2026-11-08, 월별 손익 엑셀과 같게)
 
 /**
  * 참고 (2026-09-08 토스 상점관리자 > 정산내역 > 건별로 확인):
@@ -85,8 +86,8 @@ export function pgFeeRateForMethod(label: string): number {
  * 6/19 이전 결제는 PortOne 계약 요율 3.52% 일괄, 이후는 결제수단별 요율.
  */
 export function pgFeeRateForMethodOnDate(label: string, date: string): number {
-  if (date < PG_FEE_CUTOVER) return DEFAULT_PG_FEE_RATE;
-  return pgFeeRateForMethod(label);
+  const rate = date < PG_FEE_CUTOVER ? DEFAULT_PG_FEE_RATE : pgFeeRateForMethod(label);
+  return date >= PG_FEE_VAT_FROM ? rate * 1.1 : rate;
 }
 export const BREAK_EVEN_ROAS_FALLBACK = 118;  // 매출이 원가(PG+리포트)도 못 덮는 예외 시 fallback (% 단위)
 
