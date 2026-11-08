@@ -19,7 +19,7 @@ import type { PortonePayment } from "./portone";
 import { aggregateMetaByDay, type AdTagRef, type MetaInsightRow } from "./meta";
 import { computeProfit } from "./profit";
 import { calculateRoas } from "./calc";
-import { AI_API_PAYMENTS, NAVER_AD_COSTS, marketingByDay, spreadByMonth } from "./manual-costs";
+import { AI_API_PAYMENTS, SERVER_COSTS, NAVER_AD_COSTS, marketingByDay, spreadByMonth } from "./manual-costs";
 import {
   classifyChannel,
   CHANNEL_LABEL,
@@ -231,7 +231,7 @@ export function buildChannelPeriod(args: {
     metaByDay: aggregateMetaByDay(metaRows),
     range,
     extraAdByDay: [...spreadByMonth(NAVER_AD_COSTS, range), ...(withMarketing ? marketingByDay(range) : [])],
-    extraReportCostByDay: spreadByMonth(AI_API_PAYMENTS, range),
+    extraReportCostByDay: [...spreadByMonth(AI_API_PAYMENTS, range), ...spreadByMonth(SERVER_COSTS, range)],
   }).totals;
   const total = companyTotal(false);
   const totalMk = companyTotal(true);

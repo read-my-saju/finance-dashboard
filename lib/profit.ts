@@ -169,7 +169,7 @@ export function computeProfit(args: {
   pgFeeRate?: number;
   reportCostPerUnit?: number;
   extraAdByDay?: Array<{ date: string; spend: number }>;          // 메타 외 광고비(네이버·시딩·브랜딩, 일할)
-  extraReportCostByDay?: Array<{ date: string; spend: number }>;  // API 실제 결제액(2026-10~)
+  extraReportCostByDay?: Array<{ date: string; spend: number }>;  // 건당 원가 밖 AI 결제액 + 서버비(일할)
 }): ProfitSummary {
   const pgFeeRate = args.pgFeeRate ?? DEFAULT_PG_FEE_RATE;
   const reportCostPerUnit = args.reportCostPerUnit ?? DEFAULT_REPORT_COST_PER_UNIT;

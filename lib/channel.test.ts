@@ -201,9 +201,9 @@ assert.equal(g("search").rev, 19_900);
 assert.equal(period.restoredCount, 1);
 assert.equal(period.unattributedCount, 1);
 assert.equal(Math.round(period.coverage! * 10), Math.round((89_600 - 9_900) / 89_600 * 1000));
-// 시딩·브랜딩 포함본(화면 스위치 켜짐)은 같이 계산해서 보낸다: MER 분모에 10월 마케팅비 하루치(380만 ÷ 31일), 메타 ROAS 는 그대로
-assert.equal(Math.round(period.merWithMarketing!), Math.round(89_600 / (50_000 + 3_800_000 / 31) * 100));
-assert.equal(Math.round(period.adSpendWithMarketing - period.adSpend), Math.round(3_800_000 / 31), "포함본 광고비 차이 = 그날 시딩·브랜딩");
+// 시딩·브랜딩 포함본(화면 스위치 켜짐)은 같이 계산해서 보낸다: MER 분모에 10월 마케팅비 하루치(385만 ÷ 31일), 메타 ROAS 는 그대로
+assert.equal(Math.round(period.merWithMarketing!), Math.round(89_600 / (50_000 + 3_850_000 / 31) * 100));
+assert.equal(Math.round(period.adSpendWithMarketing - period.adSpend), Math.round(3_850_000 / 31), "포함본 광고비 차이 = 그날 시딩·브랜딩");
 assert.equal(Math.round(period.metaRoas!), Math.round(59_800 / 50_000 * 100), "메타 ROAS 에는 안 섞임");
 // 할인 링크 결제 중 메타 광고 경유는 메타 캠페인 매출로, 건수·금액은 각주용으로 따로
 const dlp = buildChannelPeriod({

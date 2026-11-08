@@ -20,7 +20,7 @@ export type ManualCost = { date: string; amount: number; label: string; from?: s
 
 export const SEEDING_COSTS: ManualCost[] = [
   { date: "2026-10-02", amount: 1_100_000, label: "인플루언서 시딩 지우니·죠대리 (3.3% 총액)" },
-  { date: "2026-10-06", amount: 500_000, label: "핏플루언스 시딩 (공급가)" },
+  { date: "2026-10-06", amount: 550_000, label: "핏플루언스 시딩 (VAT 포함)" },
   { date: "2026-11-30", amount: 11_000_000, label: "콜보드 인플루언서 시딩 릴스 3건 (VAT 포함 입금액)" },
 ];
 
@@ -34,6 +34,12 @@ export const NAVER_AD_COSTS: ManualCost[] = [
 ];
 
 export const AI_API_PAYMENTS: ManualCost[] = [];
+
+// 서버비(월별 손익 엑셀 매출원가의 서버 칸과 같은 금액). 리포트 원가 칸에 더해 공헌이익에서 뺀다.
+export const SERVER_COSTS: ManualCost[] = [
+  { date: "2026-09-30", amount: 400_000, label: "AWS 9월" },
+  { date: "2026-10-31", amount: 116_760, label: "Vercel 10월 (10/1 55,509 + 10/31 61,251)" },
+];
 
 /** 항목을 나눌 날짜들: from~date, from 이 없으면 date 가 속한 달 전체. */
 function spreadDays(c: ManualCost): string[] {

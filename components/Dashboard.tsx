@@ -60,7 +60,7 @@ type ProfitTotals = {
 };
 
 // 광고비 카드 내역 (summary API + 화면 스위치 상태). 시딩·브랜딩은 marketingIncluded 일 때만 광고비 합계에 들어 있다.
-type AdBreakdown = { meta: number; naver: number; seeding: number; branding: number; marketingIncluded: boolean };
+type AdBreakdown = { meta: number; naver: number; seeding: number; branding: number; server?: number; marketingIncluded: boolean };
 
 type SummaryData = {
   range: { from: string; until: string };
@@ -835,12 +835,12 @@ function KpiStrip({
         pal={pal}
       />
       <KpiCard
-        label="리포트 생성원가"
+        label="리포트·서버 원가"
         value={totals?.reportCost ?? 0}
         delta={reportDelta}
         deltaInverse
         sparkData={finishedDaily.map((d) => d.reportCost)}
-        subText={totals ? `판매 ${NUM.format(totals.reportCount)}건 기준` : undefined}
+        subText={totals ? `판매 ${NUM.format(totals.reportCount)}건 기준${adBreakdown?.server ? ` · 서버 ${fmtKrw(adBreakdown.server)} 포함` : ""}` : undefined}
         pal={pal}
       />
       <RoasKpiCard totals={totals} />
@@ -1315,7 +1315,7 @@ function CostStructureBar({ totals, pal }: { totals?: ProfitTotals; pal: ChartPa
     { label: "광고비", value: totals.adSpend, color: pal.costSegments[0] },
     { label: "VAT", value: totals.vat, color: pal.costSegments[1] },
     { label: "PG 수수료", value: totals.pgFee, color: pal.costSegments[2] },
-    { label: "리포트 생성원가", value: totals.reportCost, color: pal.costSegments[3] },
+    { label: "리포트·서버 원가", value: totals.reportCost, color: pal.costSegments[3] },
   ];
   const totalCost = items.reduce((a, b) => a + b.value, 0);
   const profitPositive = totals.contributionProfit >= 0;
