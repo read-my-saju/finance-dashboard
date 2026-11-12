@@ -81,9 +81,11 @@ assert.equal(sum(marketingByDay(oct)), 3_850_000);
 assert.equal(spreadByMonth(SEEDING_COSTS, oct).length, 31, "10월 매일");
 assert.equal(sum(marketingByDay({ from: "2026-10-05", until: "2026-10-05" })), 124_194);
 assert.equal(sum(spreadByMonth(SEEDING_COSTS, { from: "2026-11-01", until: "2026-11-30" })), 11_000_000);
+// 11월 브랜딩 = Meta One Advanced 구독 58,990 (12월도 같은 금액)
+assert.equal(sum(spreadByMonth(BRANDING_COSTS, { from: "2026-11-01", until: "2026-11-30" })), 58_990);
 // 기간이 두 달에 걸치면 각 달 일수만큼: 10/27~11/2 = 10월 5일 + 11월 2일
-assert.equal(sum(marketingByDay({ from: "2026-10-27", until: "2026-11-02" })), Math.round((3_850_000 / 31) * 5 + (11_000_000 / 30) * 2));
-assert.equal(marketingByDay({ from: "2026-12-01", until: "2026-12-31" }).length, 0);
+assert.equal(sum(marketingByDay({ from: "2026-10-27", until: "2026-11-02" })), Math.round((3_850_000 / 31) * 5 + ((11_000_000 + 58_990) / 30) * 2));
+assert.equal(sum(marketingByDay({ from: "2026-12-01", until: "2026-12-31" })), 58_990);
 assert.equal(Math.round(totalInRange(AI_API_PAYMENTS, { from: "2026-10-01", until: "2026-10-31" })), 0, "10월 API 결제액은 건당 원가에 포함");
 assert.equal(Math.round(totalInRange(NAVER_AD_COSTS, { from: "2026-08-01", until: "2026-09-30" })), 50_166, "광고센터 소진 합계");
 assert.equal(Math.round(totalInRange(SERVER_COSTS, oct)), 116_760, "10월 서버비 = Vercel");
@@ -118,7 +120,7 @@ const on = computeProfit({ ...base, extraAdByDay: [...spreadByMonth(NAVER_AD_COS
 const mk = totalInRange(SEEDING_COSTS, wk) + totalInRange(BRANDING_COSTS, wk);
 assert.equal(Math.round(off.totals.adSpend), 300_000, "꺼짐 = 메타(+네이버)만");
 assert.equal(Math.round(on.totals.adSpend - off.totals.adSpend), Math.round(mk), "켜짐 차이 = 시딩 + 브랜딩");
-assert.equal(Math.round(mk), Math.round((1_650_000 / 31 + 2_200_000 / 31) * 5 + (11_000_000 / 30) * 2));
+assert.equal(Math.round(mk), Math.round((1_650_000 / 31 + 2_200_000 / 31) * 5 + ((11_000_000 + 58_990) / 30) * 2));
 assert.equal(on.totals.reportCost, off.totals.reportCost);
 
 console.log("calc.test OK");
