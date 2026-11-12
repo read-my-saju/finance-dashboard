@@ -26,6 +26,9 @@ export const SEEDING_COSTS: ManualCost[] = [
 
 export const BRANDING_COSTS: ManualCost[] = [
   { date: "2026-10-31", amount: 2_200_000, label: "콜보드 SNS 브랜딩 기본료 (VAT 포함 입금액)" },
+  // Meta One Advanced(인스타그램 pouri.korea + 페이스북 Pouri 인증 배지) 월 구독, 매달 19일 결제. 엑셀 D62 와 같다.
+  { date: "2026-11-19", amount: 58_990, label: "Meta One Advanced 구독" },
+  { date: "2026-12-19", amount: 58_990, label: "Meta One Advanced 구독" },
 ];
 
 export const NAVER_AD_COSTS: ManualCost[] = [
