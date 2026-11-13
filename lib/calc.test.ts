@@ -9,7 +9,7 @@
  *   945,000 × 3.2% = 30,240. (VAT 제외 859,091 × 3.2% = 27,491 은 틀린 값)
  */
 import assert from "node:assert/strict";
-import { calc, pgFeeRateForMethodOnDate, reportCostPerUnitAt, reportCostPerUnitForDate } from "./calc";
+import { calc, contributionProfitAtRoas, pgFeeRateForMethodOnDate, reportCostPerUnitAt, reportCostPerUnitForDate } from "./calc";
 import { computeProfit } from "./profit";
 import { AI_API_PAYMENTS, SERVER_COSTS, BRANDING_COSTS, NAVER_AD_COSTS, SEEDING_COSTS, marketingByDay, spreadByMonth, totalInRange } from "./manual-costs";
 
@@ -122,5 +122,13 @@ assert.equal(Math.round(off.totals.adSpend), 300_000, "꺼짐 = 메타(+네이�
 assert.equal(Math.round(on.totals.adSpend - off.totals.adSpend), Math.round(mk), "켜짐 차이 = 시딩 + 브랜딩");
 assert.equal(Math.round(mk), Math.round((1_650_000 / 31 + 2_200_000 / 31) * 5 + ((11_000_000 + 58_990) / 30) * 2));
 assert.equal(on.totals.reportCost, off.totals.reportCost);
+
+// ROAS 로 본 공헌이익 = 같은 매출로 calc 한 공헌이익 (메타 ROAS 캠페인 손익, 2026-11-13)
+const atRoas = calc({ netRevenue: 12_000_000, adSpend: 8_000_000, reportCount: 300, pgFeeRate: 0.032, reportCostPerUnit: 500 });
+assert.equal(
+  contributionProfitAtRoas(atRoas.adSpend, atRoas.roas!, atRoas.breakEvenRoas).toFixed(2),
+  atRoas.contributionProfit.toFixed(2),
+);
+assert.equal(contributionProfitAtRoas(1_000_000, 116, 116), 0, "손익분기에서 0원");
 
 console.log("calc.test OK");

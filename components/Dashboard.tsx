@@ -522,7 +522,7 @@ export default function Dashboard() {
         pal={pal}
       />
 
-      {/* ── 1-1. 채널 성과 (매출 유입 경로 · 메타 귀속 ROAS) ─────────────── */}
+      {/* ── 1-1. 채널 성과 (매출 유입 경로 · 메타 ROAS) ─────────────── */}
       <ChannelSection data={channelsView} loading={channelsLoading} theme={theme} />
 
       {/* ── 1-2. 세트 판매 (채널 성과와 같은 결제·귀속 데이터) ───────────────── */}
@@ -1443,10 +1443,10 @@ function InsightPanel({
     lines.push({ tone: "info", text: "공헌이익이 손익분기 부근." });
   }
 
-  // MER 은 광고 없이 나는 매출까지 포함 → 증액 판단 근거로 쓰지 않음. 판정은 채널 성과의 메타 귀속 ROAS 한 곳.
+  // MER 은 광고 없이 나는 매출까지 포함 → 증액 판단 근거로 쓰지 않음. 판정은 채널 성과의 메타 ROAS(광고관리자 값) 한 곳.
   if (totals.adSpend > 0 && totals.roas !== null) {
     const above = totals.roas > totals.breakEvenRoas;
-    lines.push({ tone: above ? "good" : "warn", text: `MER ${fmtPct(totals.roas, 1)} ${above ? ">" : "≤"} 손익분기 ${fmtPct(totals.breakEvenRoas, 1)} — 회사 전체 기준. 광고 증감은 위 메타 광고 귀속 ROAS로 판단.` });
+    lines.push({ tone: above ? "good" : "warn", text: `MER ${fmtPct(totals.roas, 1)} ${above ? ">" : "≤"} 손익분기 ${fmtPct(totals.breakEvenRoas, 1)} — 회사 전체 기준. 광고 증감은 위 메타 ROAS로 판단.` });
   } else if (totals.adSpend <= 0) {
     lines.push({ tone: "info", text: "광고비 집행 없음 — MER 계산 불가." });
   }
@@ -1566,7 +1566,7 @@ function CampaignTable({
             <th className="py-2 pr-3 text-right font-medium">CPA</th>
             <th className="py-2 pr-3 text-right font-medium">예산</th>
             <th className="py-2 pr-3 text-right font-medium">지출금액</th>
-            <th className="py-2 pr-3 text-right font-medium">픽셀 ROAS</th>
+            <th className="py-2 pr-3 text-right font-medium">메타 ROAS</th>
             <th className="py-2 pr-3 text-right font-medium">CTR</th>
             <th className="py-2 pr-3 text-right font-medium">빈도</th>
             <th className="py-2 pr-3 text-right font-medium">CVR</th>

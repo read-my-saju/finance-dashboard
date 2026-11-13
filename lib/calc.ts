@@ -197,6 +197,15 @@ export function calculateBreakEvenRoas(
   return (netRevenue / breakEvenAdSpend) * 100;
 }
 
+/**
+ * ROAS 로 본 공헌이익 = 광고비 × (ROAS ÷ 손익분기 ROAS − 1).
+ * 매출 = 광고비 × ROAS, 광고 전 이익률 = 100 ÷ 손익분기 ROAS 라서 '매출 × 이익률 − 광고비'와 같다.
+ * 캠페인 손익을 메타 ROAS(광고관리자 매출) 기준으로 볼 때 쓴다 (2026-11-13).
+ */
+export function contributionProfitAtRoas(adSpend: number, roas: number, breakEvenRoas: number): number {
+  return adSpend * (roas / breakEvenRoas - 1);
+}
+
 export function calc(input: CalcInput): CalcResult {
   const netRevenue = Math.max(0, input.netRevenue);
   const vat = calculateVat(netRevenue);
