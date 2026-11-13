@@ -8,7 +8,7 @@
  */
 import assert from "node:assert/strict";
 import { classifyChannel, type CampaignRef, type PurchaseAttribution } from "./channel";
-import { buildChannelPeriod, campaignRefs, metaRoasRange } from "./channel-revenue";
+import { buildChannelPeriod, campaignRefs } from "./channel-revenue";
 import { lastTouch, metaAdTouch, onePerTx, type Touch } from "./mixpanel";
 import { commonCampaignWords, shortCampaignName } from "./campaign-name";
 import { parseUrlTags, type AdTagRef } from "./meta";
@@ -361,13 +361,6 @@ const built = buildRecords(fetchedRows, ["2026-10-01", "2026-10-09"], new Map([[
 assert.deepEqual([...built.keys()], ["2026-10-01", "2026-10-09"], "중간 날짜(10/5)는 기록하지 않음");
 assert.equal(built.get("2026-10-01")!.complete, true);
 assert.equal(built.get("2026-10-09")!.complete, false, "토스 4건 중 1건만 찾음 → 불완전");
-
-// 메타 ROAS 범위: 하한 귀속 ~ 상한 max(귀속, 픽셀), 상한은 MER 을 넘지 않음
-assert.deepEqual(metaRoasRange(140, 152.3, 162.5), { low: 140, high: 152.3 });
-assert.deepEqual(metaRoasRange(150, 90, 180), { low: 150, high: 150 });           // 최근 며칠 픽셀 집계 지연 — 하한을 끌어내리지 않음
-assert.deepEqual(metaRoasRange(150, 190, 170), { low: 150, high: 170 });           // 메타 주장이 회사 전체 매출 초과
-assert.deepEqual(metaRoasRange(140, null, 160), { low: 140, high: 140 });
-assert.deepEqual(metaRoasRange(null, 150, null), { low: null, high: null });        // 광고비 0
 
 // 접점 복원: 랜딩(utm) 뒤 앱 화면의 fbclid 만 남은 방문이 캠페인을 덮어쓰지 않음
 const tUtm: Touch = [1, "ig", "paid", CAMPAIGNS[0].id, null, 1, null];

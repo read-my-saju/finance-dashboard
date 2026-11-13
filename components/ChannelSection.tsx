@@ -4,7 +4,9 @@
  * 채널 성과 섹션 — 토스 매출을 Mixpanel 유입 경로로 나눠 메타(인스타 포함) ROAS 를 객관적으로 보여준다.
  *
  * 화면 순서 (2026-10-10 시안 확정, 역피라미드):
- *   ① 메타 광고, 지금 돈 버나요?  — 메타 귀속 ROAS 히어로 + 손익분기 트랙 + MER·aMER·nCAC·픽셀 ROAS
+ *   ① 메타 광고, 지금 돈 버나요?  — 메타 ROAS(광고관리자 값) 히어로 + 손익분기 트랙 + 실제 돈 확인 + MER·aMER·nCAC·마지막 클릭 ROAS
+ *      메타 ROAS 를 판정 기준으로 쓰는 근거(2026-11-13): 9/4~11/12 10주 동안 메타 픽셀 매출이
+ *      '마지막 클릭 + 검색 + 미귀속' 실결제와 주마다 0.97~1.03배로 맞고, 검색+미귀속은 메타 광고비의 약 10%로 함께 움직였다.
  *   ② 매출은 어디서 나오나요?      — 100% 채널 막대 + 범례 + 광고/광고 외/미귀속 + 일별 누적 막대
  *   ③ 어느 캠페인을 키울까요?      — 채널·캠페인 표 (모바일은 카드)
  *
@@ -13,6 +15,7 @@
  */
 import { useMemo, useState } from "react";
 import { breakAtUnderscore, commonCampaignWords, shortCampaignName } from "@/lib/campaign-name";
+import { contributionProfitAtRoas } from "@/lib/calc";
 import type { ChannelGroup } from "@/lib/channel";
 import type { ChannelDaily, ChannelGroupRow, ChannelPeriod, ChannelRow } from "@/lib/channel-revenue";
 
@@ -39,11 +42,12 @@ const COLORS: Record<Theme, Record<ChannelGroup, string>> = {
   dark: { meta: "#3987e5", search: "#d95926", search_ad: "#9085e9", owned: "#199e70", influencer: "#c98500", referral: "#d55181", unattributed: "#55554f" },
 };
 const TIPS = {
-  roas: "메타 광고로 들어온 고객의 실제 결제액(토스) ÷ 메타 광고비. 결제 직전 마지막 유입 경로(UTM) 기준이에요.",
+  meta: "메타 광고관리자 ROAS와 같은 값(7일 클릭, 1일 조회 기준). 광고를 보고 검색으로 다시 들어오거나 다른 기기에서 산 결제까지 들어가서, 광고가 실제로 만든 매출에 가장 가까워요. 광고를 본 날에 매출을 붙여서 최근 하루이틀은 조금 더 올라갈 수 있어요.",
+  lastClick: "메타 광고를 마지막으로 클릭하고 들어와 산 실제 결제(토스) ÷ 메타 광고비. 광고를 보고 검색으로 다시 오거나 다른 기기에서 산 결제가 빠져서 메타 ROAS보다 낮게 나와요.",
+  check: "메타가 잡은 매출이 실제 돈과 맞는지 확인해요. 마지막 클릭, 검색, 미귀속 실제 결제를 더해 메타 매출과 나눈 값이에요. 9/4~11/12 10주 동안 주마다 97~103%였어요. 7일 이상 볼 때 90~110%를 벗어나면 픽셀이 중복으로 찍히거나 빠지는지 확인해야 해요.",
   aroas: "메타 광고로 들어와 처음 결제한 고객의 결제액 ÷ 메타 광고비. 광고가 새 고객을 데려오는 효율이에요(aMER). 7월 하순 이전 결제 기록은 Mixpanel에 없어서, 그때 산 고객의 재구매는 신규로 잡힐 수 있어요.",
   mer: "전체 매출 ÷ 광고비(메타 + 네이버 검색광고, 위 '시딩·브랜딩 포함'을 켜면 시딩·브랜딩도). 네이버 검색·인스타 프로필 같은 광고 외 매출도 포함돼서 광고 성과보다 높게 나와요. 시딩·브랜딩·네이버는 그 달(집행) 일수로 나눠 매일 넣어요.",
   ncac: "메타 광고비 ÷ 메타로 들어온 신규 구매자 수. 새 고객 1명을 데려오는 데 든 비용이에요.",
-  pixel: "메타 광고관리자가 자체 집계한 구매액 ÷ 광고비(광고관리자 ROAS와 같은 값). 7일 클릭·1일 조회 기준이라 실제보다 크게 잡히고, 결제일이 아니라 광고를 본 날에 매출을 붙여서 최근 며칠은 숫자가 계속 올라가요.",
   cov: "결제 중 유입 채널을 확인한 비율. 결제 이벤트에 UTM이 없으면 결제 전 7일 방문기록으로 복원해요.",
 };
 
@@ -61,6 +65,8 @@ const fmtClock = (iso: string) => {
 const revOf = (o: ChannelRow, mode: Mode) => (mode === "new" ? o.newRev : o.rev);
 const cntOf = (o: ChannelRow, mode: Mode) => (mode === "new" ? o.newN : o.n);
 const roasOf = (o: ChannelRow, mode: Mode) => (o.spend > 0 ? (revOf(o, mode) / o.spend) * 100 : null);
+// 메타 광고 줄은 메타 ROAS(광고관리자 값)로 판정. 신규 고객 보기는 메타에 신규 구분이 없어 마지막 클릭 값으로.
+const judgeRoas = (o: ChannelRow, g: ChannelGroup, mode: Mode) => (g === "meta" && mode === "all" ? o.pixelRoas : roasOf(o, mode));
 
 const CARD = "rounded-xl border border-gray-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900";
 const EYEBROW = "text-xs font-semibold text-gray-400 dark:text-zinc-500";
@@ -149,20 +155,23 @@ function Hero({ cur, prev: prevPeriod, mode, colors }: { cur: ChannelPeriod; pre
   const prev = live ? null : prevPeriod;
   const meta = cur.groups[0];
   const isNew = mode === "new";
-  const val = isNew ? cur.newCustomerRoas : cur.metaRoas;
-  const pval = isNew ? prev?.newCustomerRoas : prev?.metaRoas;
+  const val = isNew ? cur.newCustomerRoas : cur.pixelRoas;
+  const pval = isNew ? prev?.newCustomerRoas : prev?.pixelRoas;
   const bep = cur.metaBreakEvenRoas;
   const scale = (v: number) => (Math.min(Math.max(v, 0), 200) / 200) * 100;
   const d = val != null ? val - bep : null;
-  const share = cur.revenue > 0 ? (meta.rev / cur.revenue) * 100 : 0;
+  const verdict = d == null ? null : toneOf(d);
   const shortName = useShortNames(meta.children);
-  const below = meta.children.filter((k) => k.spend > 0 && (roasOf(k, mode) ?? Infinity) < bep).map((k) => shortName(k.name));
-  // 전체 고객: 메타 ROAS 범위(귀속~픽셀)로 판정. 신규 고객: 픽셀에 신규 구분이 없어 귀속 값 하나로 판정.
-  const lo = isNew ? val : cur.metaRoasLow;
-  const hi = isNew ? val : cur.metaRoasHigh;
-  const verdict = d == null || lo == null || hi == null ? null
-    : isNew ? toneOf(d)
-    : lo >= bep ? "good" : hi < bep ? "bad" : "warn";
+  const below = meta.children.filter((k) => k.spend > 0 && (judgeRoas(k, "meta", mode) ?? Infinity) < bep).map((k) => shortName(k.name));
+  // 실제 돈 확인: 메타가 잡은 매출 = 마지막 클릭 + 검색 + 미귀속 실결제인지 (10주 검증 97~103%).
+  const revOfGroup = (g: ChannelGroup) => cur.groups.find((x) => x.group === g)?.rev ?? 0;
+  const realRev = meta.rev + revOfGroup("search") + revOfGroup("unattributed");
+  const pixelRev = cur.pixelRoas != null ? (cur.pixelRoas / 100) * meta.spend : null;
+  const check = pixelRev ? (realRev / pixelRev) * 100 : null;
+  const days = Math.round((Date.parse(cur.range.until) - Date.parse(cur.range.from)) / 86400000) + 1;
+  // 하루 이틀은 메타가 광고 본 날에 매출을 붙여 어긋나므로 7일 이상일 때만 판정 색을 쓴다.
+  const checkTone = check == null || days < 7 ? null : check >= 90 && check <= 110 ? "good" : "bad";
+  const share = pixelRev != null && cur.revenue > 0 ? (pixelRev / cur.revenue) * 100 : null;
 
   return (
     <section className={`${CARD} grid gap-4 lg:grid-cols-12`} aria-labelledby="ch-q1">
@@ -170,8 +179,8 @@ function Hero({ cur, prev: prevPeriod, mode, colors }: { cur: ChannelPeriod; pre
         <div className={EYEBROW} id="ch-q1">메타 광고, 지금 돈 버나요?</div>
         <div>
           <div className="flex items-center gap-1.5 text-sm font-semibold text-gray-600 dark:text-zinc-300">
-            {isNew ? "메타 광고 신규 고객 ROAS" : "메타 광고 귀속 ROAS"}
-            <Info text={isNew ? TIPS.aroas : TIPS.roas} label="메타 귀속 ROAS" />
+            {isNew ? "메타 광고 신규 고객 ROAS" : "메타 ROAS (광고관리자 기준)"}
+            <Info text={isNew ? TIPS.aroas : TIPS.meta} label={isNew ? "신규 고객 ROAS" : "메타 ROAS"} />
           </div>
           <div className="mt-1 flex flex-wrap items-baseline gap-3">
             <span className="text-5xl font-extrabold tabular-nums tracking-tight text-gray-900 sm:text-[56px] sm:leading-none dark:text-zinc-100">{pct(val)}</span>
@@ -182,21 +191,21 @@ function Hero({ cur, prev: prevPeriod, mode, colors }: { cur: ChannelPeriod; pre
           </div>
         </div>
         {val != null && (
-          <div className="relative pt-5" aria-label={`손익분기 ${pct(bep)} 대비 ${pct(lo)}~${pct(hi)}`}>
+          <div className="relative pt-5" aria-label={`손익분기 ${pct(bep)} 대비 ${pct(val)}`}>
             <span className="absolute top-0 -translate-x-1/2 whitespace-nowrap text-[11px] font-bold tabular-nums text-gray-600 dark:text-zinc-300" style={{ left: `${scale(bep)}%` }}>
               손익분기 {pct(bep)}
             </span>
             <div className="relative h-3 rounded-full bg-gray-100 dark:bg-zinc-800">
-              <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${scale(lo ?? val)}%`, background: live || verdict !== "bad" ? colors.meta : "#e11d48" }} />
-              {lo != null && hi != null && hi > lo && (
-                <div className="absolute inset-y-0 rounded-r-full" style={{ left: `${scale(lo)}%`, width: `${scale(hi) - scale(lo)}%`, background: `repeating-linear-gradient(135deg, ${colors.meta}66 0 4px, transparent 4px 7px)` }} />
-              )}
+              <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${scale(val)}%`, background: live || verdict !== "bad" ? colors.meta : "#e11d48" }} />
               <div className="absolute -bottom-1.5 -top-1.5 w-0.5 rounded bg-gray-900 dark:bg-zinc-100" style={{ left: `calc(${scale(bep)}% - 1px)` }} />
             </div>
             <div className="mt-1.5 flex justify-between text-[11px] tabular-nums text-gray-400 dark:text-zinc-500"><span>0%</span><span>100%</span><span>200%</span></div>
-            {!isNew && lo != null && hi != null && hi > lo && (
-              <p className="mt-1 text-xs tabular-nums text-gray-500 dark:text-zinc-400">빗금 = 메타 광고관리자가 더 잡은 몫 · 범위 {pct(lo)} ~ {pct(hi)}</p>
-            )}
+          </div>
+        )}
+        {!isNew && check != null && (
+          <div className={`flex w-fit flex-wrap items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs tabular-nums ${checkTone ? TONE[checkTone] : "border-gray-200 text-gray-500 dark:border-zinc-700 dark:text-zinc-400"}`}>
+            <span>실제 돈 확인: 마지막 클릭, 검색, 미귀속 결제 {man(realRev)}원 = 메타 매출의 <b>{pct(check, 0)}</b>{days < 7 ? " (7일 이상 볼 때 정확해요)" : ""}</span>
+            <Info text={TIPS.check} label="실제 돈 확인" />
           </div>
         )}
         {live ? (
@@ -205,20 +214,16 @@ function Hero({ cur, prev: prevPeriod, mode, colors }: { cur: ChannelPeriod; pre
           </span>
         ) : verdict && d != null && (
           <span className={`w-fit rounded-lg border px-2.5 py-1 text-sm font-bold ${TONE[verdict]}`}>
-            {!isNew
-              ? verdict === "good" ? "✔ 범위 전체가 손익분기 위예요 · 증액 가능"
-                : verdict === "warn" ? "▲ 범위가 손익분기에 걸쳐 있어요 · 유지"
-                : "✖ 범위 전체가 손익분기 아래예요 · 감액 검토"
-              : verdict === "good" ? `✔ 손익분기보다 ${d.toFixed(1)}%p 높아요 · 증액 가능`
+            {verdict === "good" ? `✔ 손익분기보다 ${d.toFixed(1)}%p 높아요 · 증액 가능`
               : verdict === "warn" ? `▲ 손익분기보다 ${d.toFixed(1)}%p 높아요 · 여유가 작아요`
               : `✖ 손익분기보다 ${Math.abs(d).toFixed(1)}%p 낮아요 · 광고비 주의`}
           </span>
         )}
         <p className="max-w-prose border-t border-gray-100 pt-3.5 text-sm leading-relaxed text-gray-600 dark:border-zinc-800 dark:text-zinc-300">
-          이 기간 매출의 <b className="text-gray-900 dark:text-zinc-100">{pct(share)}</b>가 메타 광고에서 나왔어요.{" "}
-          {cur.mer != null && cur.metaRoas != null && cur.mer > cur.metaRoas && (
+          {!isNew && share != null && <>메타 광고관리자 기준으로 이 기간 매출의 <b className="text-gray-900 dark:text-zinc-100">{pct(share)}</b>가 메타 광고에서 나왔어요.{" "}</>}
+          {!isNew && cur.mer != null && cur.pixelRoas != null && cur.mer > cur.pixelRoas && (
             <>전체 매출로 계산한 MER은 <b className="text-gray-900 dark:text-zinc-100">{pct(cur.mer)}</b>지만, 메타 광고 매출만 보면{" "}
-              <b className="text-gray-900 dark:text-zinc-100">{pct(cur.metaRoas)}</b>로 {(cur.mer - cur.metaRoas).toFixed(0)}%p 낮아요.{" "}</>
+              <b className="text-gray-900 dark:text-zinc-100">{pct(cur.pixelRoas)}</b>로 {(cur.mer - cur.pixelRoas).toFixed(0)}%p 낮아요.{" "}</>
           )}
           {below.length > 0
             ? <>손익분기 아래 캠페인: <b className="text-gray-900 dark:text-zinc-100">{below.join("·")}</b>.</>
@@ -228,12 +233,12 @@ function Hero({ cur, prev: prevPeriod, mode, colors }: { cur: ChannelPeriod; pre
       <div className="grid content-start gap-3 sm:grid-cols-2 lg:col-span-7">
         <Kpi label="MER (전체 매출 ÷ 광고비)" tip={TIPS.mer} value={pct(cur.mer)} delta={<Delta cur={cur.mer} prev={prev?.mer} />} sub="회사 전체" />
         {isNew
-          ? <Kpi label="메타 귀속 ROAS (전체 고객)" tip={TIPS.roas} value={pct(cur.metaRoas)} delta={<Delta cur={cur.metaRoas} prev={prev?.metaRoas} />} sub={`손익분기 ${pct(bep)}`} />
+          ? <Kpi label="메타 ROAS (전체 고객)" tip={TIPS.meta} value={pct(cur.pixelRoas)} delta={<Delta cur={cur.pixelRoas} prev={prev?.pixelRoas} />} sub={`손익분기 ${pct(bep)}`} />
           : <Kpi label="신규 고객 ROAS (aMER)" tip={TIPS.aroas} value={pct(cur.newCustomerRoas)} delta={<Delta cur={cur.newCustomerRoas} prev={prev?.newCustomerRoas} />} sub={`손익분기 ${pct(bep)}`} />}
         <Kpi label="신규 고객 획득비용 (nCAC)" tip={TIPS.ncac} value={cur.newCustomerCac != null ? won(cur.newCustomerCac) : "—"}
           delta={<Delta cur={cur.newCustomerCac} prev={prev?.newCustomerCac} inverse ratio />} sub={`신규 ${NUM.format(meta.newN)}명`} />
-        <Kpi label="픽셀 ROAS (메타 자체 집계)" tip={TIPS.pixel} value={pct(cur.pixelRoas)} delta={<Delta cur={cur.pixelRoas} prev={prev?.pixelRoas} />}
-          sub={cur.pixelRoas != null && cur.metaRoas ? `귀속 대비 ×${(cur.pixelRoas / cur.metaRoas).toFixed(2)}` : ""} />
+        <Kpi label="마지막 클릭 ROAS" tip={TIPS.lastClick} value={pct(cur.metaRoas)} delta={<Delta cur={cur.metaRoas} prev={prev?.metaRoas} />}
+          sub={cur.pixelRoas && cur.metaRoas != null ? `메타 ROAS의 ${((cur.metaRoas / cur.pixelRoas) * 100).toFixed(0)}%` : ""} />
       </div>
     </section>
   );
@@ -296,7 +301,7 @@ function Mix({ cur, prev, mode, colors, focus, setFocus }: {
         ))}
       </div>
       <p className="mt-2.5 text-xs leading-relaxed text-gray-400 dark:text-zinc-500">
-        광고 외 매출은 광고를 꺼도 나는 기본 매출이에요. 광고비를 늘릴 때 이 값도 같이 늘면 광고가 검색·입소문까지 키우고 있다는 신호예요.
+        검색과 미귀속 매출은 메타 광고비를 따라 움직여요(9/4~11/12 주마다 광고비의 약 10%). 대부분 광고를 보고 검색하거나 다른 기기에서 산 결제라서 메타 ROAS에 들어가 있어요.
       </p>
     </div>
   );
@@ -421,15 +426,16 @@ function ChannelTable({ cur, mode, colors, focus }: { cur: ChannelPeriod; mode: 
   const newPct = (o: ChannelRow) => (o.n > 0 ? `${((o.newN / o.n) * 100).toFixed(0)}%` : "—");
   const nameOf = (o: ChannelRow) => (o.campaignId ? shortName(o.name) : o.name);
   const muted = <span className="font-normal text-gray-400 dark:text-zinc-500">—</span>;
-  const cp = (o: ChannelRow) => {
+  const cp = (o: ChannelRow, g: ChannelGroup) => {
     if (mode === "new") return muted;
-    const v = o.contributionProfit;
+    // 메타 줄은 판정과 같은 기준(메타 광고관리자 매출)으로
+    const v = g === "meta" && o.spend > 0 && o.pixelRoas != null ? contributionProfitAtRoas(o.spend, o.pixelRoas, bep) : o.contributionProfit;
     return v < 0 ? <span className="text-rose-600 dark:text-rose-400">−{man(-v)}</span> : man(v);
   };
   const TD = "border-b border-gray-100 px-2.5 py-2.5 text-right tabular-nums dark:border-zinc-800";
 
   const row = (o: ChannelRow, g: ChannelGroup, kid: boolean) => {
-    const r = roasOf(o, mode);
+    const r = judgeRoas(o, g, mode);
     const hasKids = !kid && (cur.groups.find((x) => x.group === g)?.children.length ?? 0) > 1;
     return (
       <tr key={`${g}-${o.key}`} className={`${kid ? "text-gray-600 dark:text-zinc-400" : "font-bold text-gray-900 dark:text-zinc-100"} ${focus === g ? "bg-blue-50/60 dark:bg-blue-950/30" : ""}`}>
@@ -457,7 +463,7 @@ function ChannelTable({ cur, mode, colors, focus }: { cur: ChannelPeriod; mode: 
         <td className={TD}>{o.spend > 0 ? man(o.spend) : muted}</td>
         <td className={TD}>{r == null ? muted : pct(r)}</td>
         <td className={TD}><StatusChip roas={r} bep={bep} group={g} /></td>
-        <td className={`${TD} pr-0`}>{cp(o)}</td>
+        <td className={`${TD} pr-0`}>{cp(o, g)}</td>
       </tr>
     );
   };
@@ -471,7 +477,7 @@ function ChannelTable({ cur, mode, colors, focus }: { cur: ChannelPeriod; mode: 
         <table className="w-full whitespace-nowrap text-[13px]">
           <thead>
             <tr className="text-xs text-gray-400 dark:text-zinc-500">
-              {["채널", "매출", "비중", "결제", "신규 비중", "광고비", "귀속 ROAS", "손익분기 대비", "공헌이익"].map((h, i) => (
+              {["채널", "매출", "비중", "결제", "신규 비중", "광고비", "ROAS", "손익분기 대비", "공헌이익"].map((h, i) => (
                 <th key={h} className={`border-b border-gray-200 px-2.5 py-2 font-medium dark:border-zinc-700 ${i === 0 ? "pl-0 text-left" : i === 8 ? "pr-0 text-right" : "text-right"}`}>{h}</th>
               ))}
             </tr>
@@ -490,7 +496,7 @@ function ChannelTable({ cur, mode, colors, focus }: { cur: ChannelPeriod; mode: 
       <div className="mt-3 grid gap-2.5 md:hidden">
         {ORDER.map((k) => {
           const g = cur.groups.find((x) => x.group === k)!;
-          const r = roasOf(g, mode);
+          const r = judgeRoas(g, k, mode);
           return (
             <div key={k} className={`grid gap-2 rounded-xl border border-gray-200 px-3.5 py-3 dark:border-zinc-800 ${focus === k ? "bg-blue-50/60 dark:bg-blue-950/30" : ""}`}>
               <div className="flex items-center justify-between gap-2 font-bold text-gray-900 dark:text-zinc-100">
@@ -500,14 +506,14 @@ function ChannelTable({ cur, mode, colors, focus }: { cur: ChannelPeriod; mode: 
               <div className="grid grid-cols-3 gap-1.5 text-xs text-gray-400 dark:text-zinc-500">
                 <div>매출<b className="block text-sm tabular-nums text-gray-900 dark:text-zinc-100">{man(revOf(g, mode))}</b></div>
                 <div>비중<b className="block text-sm tabular-nums text-gray-900 dark:text-zinc-100">{sharePct(g)}</b></div>
-                <div>귀속 ROAS<b className="block text-sm tabular-nums text-gray-900 dark:text-zinc-100">{pct(r, 0)}</b></div>
+                <div>ROAS<b className="block text-sm tabular-nums text-gray-900 dark:text-zinc-100">{pct(r, 0)}</b></div>
               </div>
               {g.children.length > 1 && (
                 <div className="grid gap-1.5 border-t border-gray-100 pt-2 text-xs dark:border-zinc-800">
                   {g.children.map((c) => (
                     <div key={c.key} className="flex justify-between gap-2 tabular-nums text-gray-600 dark:text-zinc-400">
                       <span className="min-w-0 break-words break-keep line-clamp-2">{breakAtUnderscore(nameOf(c))}</span>
-                      <span className="shrink-0">{man(revOf(c, mode))}{c.spend > 0 ? ` · ROAS ${pct(roasOf(c, mode), 0)}` : ""}</span>
+                      <span className="shrink-0">{man(revOf(c, mode))}{c.spend > 0 ? ` · ROAS ${pct(judgeRoas(c, k, mode), 0)}` : ""}</span>
                     </div>
                   ))}
                 </div>
@@ -530,6 +536,7 @@ function ChannelTable({ cur, mode, colors, focus }: { cur: ChannelPeriod; mode: 
         )}
         <Info text={TIPS.cov} label="귀속률" />
         <span className="text-gray-400 dark:text-zinc-500">손익분기 {pct(bep)} = 매출에서 VAT·PG 수수료·AI 원가를 빼고 남는 만큼만 광고비를 쓴 상태</span>
+        {mode === "all" && <span className="text-gray-400 dark:text-zinc-500">메타 광고 줄의 ROAS와 공헌이익은 메타 광고관리자 매출 기준이고, 매출과 결제 칸은 마지막 클릭 실결제예요</span>}
       </div>
     </section>
   );
