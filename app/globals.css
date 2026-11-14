@@ -4,15 +4,16 @@
 
 html,
 body {
-  background: #FAFAFA;
-  color: #111827;
+  background: #F6F8FB;
+  color: #0D1B2A;
   font-feature-settings: "ss01", "tnum";
+  font-variant-numeric: tabular-nums;
 }
 
 html.dark,
 html.dark body {
-  background: #0d0d0f;
-  color: #e4e4e7;
+  background: #0B0D12;
+  color: #ECEEF2;
 }
 
 html.dark ::-webkit-scrollbar-thumb {
