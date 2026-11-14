@@ -205,7 +205,7 @@ function fmtPct(n: number | null, digits = 1): string {
 // ────────────────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  // 기본 = 최근 7일 (광고 판정 기간과 같게. 전체 기간은 채널 성과가 9/3부터라 기간이 어긋남). 두 날짜는 같은 '오늘'에서.
+  // 기본 = 오늘 (진행 중인 날은 광고 판정이 판정을 보류). 두 날짜는 같은 '오늘'에서.
   const [range, setRange] = useState(() => presetRange("today", todayStr()));
   const { from, until } = range;
   const setFrom = (f: string) => setRange((r) => ({ ...r, from: f }));

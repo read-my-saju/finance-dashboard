@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * 세트 판매 카드 — 채널 성과 아래 접는 카드 안에 들어간다 (2026-10-23 시안 확정).
- * 위 '채널·캠페인별 성과' 표에 있는 결제 수·ROAS 는 다시 싣지 않고 세트 몫(마지막 클릭 실결제 기준)만 보여 준다.
+ * 세트 판매 카드 — 광고 판정과 매출 출처 아래 접는 카드 안에 들어간다 (2026-10-23 시안 확정).
+ * 광고 판정 표에 있는 결제 수·ROAS 는 다시 싣지 않고 세트 몫(마지막 클릭 실결제 기준)만 보여 준다.
  * 숫자는 /api/dashboard/channels 의 cur.sets (lib/channel-revenue.ts buildSetSales). 여기선 비율·표시만.
  */
 import { breakAtUnderscore, commonCampaignWords, shortCampaignName } from "@/lib/campaign-name";

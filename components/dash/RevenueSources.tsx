@@ -35,7 +35,6 @@ export default function RevenueSources({ data, loading, theme }: { data: Channel
 
   const colors = SERIES[theme];
   const segs = mix.rows.filter((r) => r.amount > 0);
-  const total = mix.rows.reduce((s, r) => s + r.n, 0);
   const aria = mix.rows.map((r) => `${NAME[r.key][0]} ${pct(r.share)}`).join(", ");
 
   return (
@@ -43,16 +42,14 @@ export default function RevenueSources({ data, loading, theme }: { data: Channel
       <div className={`${CARD} flex flex-col gap-3.5 transition-opacity ${loading ? "opacity-60" : ""}`}>
         <div>
           <h2 id="revenue-sources" className={`text-lg font-extrabold tracking-tight ${TXT.main}`}>매출 출처</h2>
-          <p className={`mt-0.5 text-sm ${TXT.sub}`}>결제 {total.toLocaleString("ko-KR")}건이 마지막으로 들어온 경로</p>
+          <p className={`mt-0.5 text-sm ${TXT.sub}`}>결제 {cur.payments.toLocaleString("ko-KR")}건이 마지막으로 들어온 경로</p>
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <div className="flex flex-col gap-1" style={{ width: `${mix.influence.share}%` }}>
-            <span className={`whitespace-nowrap text-center text-xs font-semibold ${TXT.main}`}>
-              메타 광고 영향 {fmtMan(mix.influence.amount)} ({Math.round(mix.influence.share)}%)
-            </span>
-            <div aria-hidden="true" className="h-1.5 rounded-t border border-b-0 border-[#9AA3B2] dark:border-[#5B6475]" />
-          </div>
+          <span className={`text-xs font-semibold ${TXT.main}`}>
+            메타 광고 영향 {fmtMan(mix.influence.amount)} ({Math.round(mix.influence.share)}%)
+          </span>
+          <div aria-hidden="true" className="h-1.5 rounded-t border border-b-0 border-[#9AA3B2] dark:border-[#5B6475]" style={{ width: `${mix.influence.share}%` }} />
           <div role="img" aria-label={aria} className="flex h-9 gap-0.5 overflow-hidden rounded-lg">
             {segs.map((r) => (
               <div
