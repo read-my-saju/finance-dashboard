@@ -23,6 +23,8 @@ assert.equal(fmtMan(39455700), "3,946만");
 assert.equal(fmtMan(93845), "9.4만");
 assert.equal(fmtMan(-280000), "−28만");
 assert.equal(fmtMan(0), "0원");
+assert.equal(fmtMan(250), "250원");
+assert.equal(fmtMan(-300), "−300원");
 const wk = { netRevenue: 39455700, vat: 3586882, revenueExVat: 35868818, pgFee: 1360206, reportCost: 550500, adSpend: 26661153, contributionProfit: 7296960 };
 const b = profitBreakdown(wk);
 assert.deepEqual(b.rows.map((r) => r.sign + r.label), ["결제매출", "−부가세", "=부가세 제외 매출", "−결제수수료", "−리포트 원가", "−광고비", "=공헌이익 (남는 돈)"]);
@@ -33,6 +35,7 @@ assert.equal(profitHeadline(46.3, true), "결제 100원 중 46.3원이 남습니
 const loss = profitBreakdown({ netRevenue: 1000000, vat: 90909, revenueExVat: 909091, pgFee: 32000, reportCost: 5000, adSpend: 1200000, contributionProfit: -327909 });
 assert.equal(loss.segs[2].amount, 0);
 assert.equal(profitHeadline(loss.profitPer100, false), "결제 100원당 32.8원 손실입니다");
+assert.equal(profitHeadline(-32.8, true), "결제 100원당 32.8원 손실입니다 (진행 중)");
 assert.ok(profitBreakdown({ ...wk, netRevenue: 0 }).rows.every((r) => Number.isFinite(r.per100)));
 assert.equal(verdictOf(138.6, 116.2), "good");
 assert.equal(verdictOf(120, 116.2), "warn");

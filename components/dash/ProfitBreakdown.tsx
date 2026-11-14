@@ -4,7 +4,7 @@ import { CARD, SERIES, SectionHead, TXT } from "./ui";
 type Ad = { seeding: number; branding: number };
 
 const BAD = "text-[#dc2626] dark:text-[#f07070]";
-const won = (n: number) => `${n.toFixed(1)}원`;
+const won = (n: number) => `${n < 0 ? "−" : ""}${Math.abs(n).toFixed(1)}원`;
 
 export default function ProfitBreakdown({ totals, totalsWithMarketing, adBreakdown, includeMarketing, live, theme }: {
   totals?: BreakdownInput; totalsWithMarketing?: BreakdownInput; adBreakdown?: Ad;
@@ -26,12 +26,12 @@ export default function ProfitBreakdown({ totals, totalsWithMarketing, adBreakdo
     <section aria-labelledby="s-wf" className={`${CARD} mt-4 min-w-0`}>
       <SectionHead title="매출에서 이익까지" />
       <p id="s-wf" className={`text-xl font-bold tracking-tight ${profitPer100 < 0 ? BAD : TXT.main}`}>
-        {profitHeadline(profitPer100, live)}
+        {totals.netRevenue === 0 ? `아직 결제가 없습니다${live ? " (진행 중)" : ""}` : profitHeadline(profitPer100, live)}
       </p>
 
       <div role="img" aria-label={aria} className="mt-4 flex h-7 gap-0.5 overflow-hidden rounded-lg">
         {segs.map((s) => (
-          <div key={s.key} className="min-w-[3px]" style={{ width: `${s.per100}%`, background: palette[s.key] }} />
+          <div key={s.key} className={s.per100 > 0 ? "min-w-[3px]" : ""} style={{ width: `${s.per100}%`, background: palette[s.key] }} />
         ))}
       </div>
       <div className={`mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm ${TXT.sub}`}>
@@ -54,7 +54,7 @@ export default function ProfitBreakdown({ totals, totalsWithMarketing, adBreakdo
           return (
             <div
               key={r.label}
-              className={`grid grid-cols-[20px_minmax(0,1fr)_84px_64px] items-center gap-2 rounded-lg px-2 py-2 sm:grid-cols-[20px_minmax(0,1fr)_104px_80px] ${strong ? "font-bold" : ""} ${r.kind === "eq" ? "border-t border-[#C9D1DC] dark:border-[#2A3040]" : ""} ${r.kind === "final" ? "bg-[#15803d]/10 dark:bg-[#199e70]/15" : ""}`}
+              className={`grid grid-cols-[20px_minmax(0,1fr)_84px_64px] items-center gap-2 rounded-lg px-2 py-2 sm:grid-cols-[20px_minmax(0,1fr)_104px_80px] ${strong ? "font-bold" : ""} ${r.kind === "eq" ? "border-t border-[#C9D1DC] dark:border-[#2A3040]" : ""} ${r.kind === "final" && !loss ? "bg-[#15803d]/10 dark:bg-[#199e70]/15" : ""}`}
             >
               <span className={`text-center ${TXT.dim}`}>{r.sign}</span>
               <span className={strong ? TXT.main : TXT.sub}>{r.label}</span>

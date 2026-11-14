@@ -42,10 +42,11 @@ export function sameTimeRevenue(hourly: Array<{ hour: number; amount: number }>,
   }, 0);
 }
 
-/** 만 원 단위 표기. 10만 원 미만은 소수 한 자리. */
+/** 만 원 단위 표기. 10만 원 미만은 소수 한 자리, 1,000원 미만은 "N원". */
 export function fmtMan(won: number): string {
   if (won === 0) return "0원";
   const sign = won < 0 ? "−" : "";
+  if (Math.abs(won) < 1000) return sign + Math.round(Math.abs(won)) + "원";
   const man = Math.abs(won) / 10000;
   if (Math.abs(won) >= 100000) return sign + Math.round(man).toLocaleString("en-US") + "만";
   return sign + man.toFixed(1).replace(/\.0$/, "") + "만";
@@ -81,7 +82,7 @@ export function profitBreakdown(t: BreakdownInput): { rows: BreakdownRow[]; segs
 }
 
 export function profitHeadline(profitPer100: number, live: boolean): string {
-  if (profitPer100 < 0) return `결제 100원당 ${(-profitPer100).toFixed(1)}원 손실입니다`;
+  if (profitPer100 < 0) return `결제 100원당 ${(-profitPer100).toFixed(1)}원 손실입니다${live ? " (진행 중)" : ""}`;
   return `결제 100원 중 ${profitPer100.toFixed(1)}원이 남습니다${live ? " (진행 중)" : ""}`;
 }
 

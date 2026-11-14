@@ -251,11 +251,11 @@ export default function Dashboard() {
     return { ...channels, cur: pick(channels.cur), prev: pick(channels.prev) };
   }, [channels, includeMarketing]);
   // 오늘 보기일 때만 어제 같은 시각 매출을 따로 불러온다 (결제매출 카드 비교용).
-  const live = from === until && until === todayStr();
+  // live 는 화면에 떠 있는 summary 의 기간 기준 (기간을 바꾼 직후 옛 숫자에 오늘 문구가 붙지 않게).
+  const live = Boolean(summary) && summary!.range.from === todayStr() && summary!.range.until === todayStr();
   const [yesterdaySameTime, setYesterdaySameTime] = useState<number | null>(null);
   useEffect(() => {
-    setYesterdaySameTime(null);
-    if (!live) return;
+    if (!live) { setYesterdaySameTime(null); return; }
     let stale = false;
     const y = presetRange("yesterday", todayStr()).from;
     fetch(`/api/payments?from=${y}&until=${y}`, { cache: "no-store" })
@@ -267,7 +267,7 @@ export default function Dashboard() {
       })
       .catch(() => {});
     return () => { stale = true; };
-  }, [live]);
+  }, [live, summary]); // 새로고침마다 summary 가 새로 와서 어제 같은 시각을 현재 시각으로 다시 계산
 
   // 동시 진행 fetch 들 중 가장 최신 호출의 응답만 화면에 반영하기 위한 request id.
   // 사용자가 "전체 기간" → "오늘" 같이 빠르게 다른 범위를 누르면, PortOne cursor
@@ -325,6 +325,7 @@ export default function Dashboard() {
         setPayments(pJson);
       }
       if (sRes.ok) setSummary(sJson);
+      else setError(sJson?.detail || sJson?.error || `summary HTTP ${sRes.status}`);
       if (dRes.ok) setDaily(dJson);
       if (cRes.ok) setCampaigns(cJson);
       if (prevRes.ok && Array.isArray(prevJson?.daily)) {
@@ -454,7 +455,8 @@ function periodDescription(from: string, until: string, kstTime: string): string
   }
   // 오늘이 끼면 오늘은 미완료라 완료 일수에서 뺀다
   const n = diffDays(from, until) - (until >= today && from <= today ? 1 : 0);
-  return `${mdWd(from)} – ${mdWd(until)}, 완료된 ${n}일. 화살표는 이전 ${n}일 대비`;
+  const span = from === until ? mdWd(from) : `${mdWd(from)} – ${mdWd(until)}`;
+  return `${span}, 완료된 ${n}일. 화살표는 이전 ${diffDays(from, until)}일 대비`;
 }
 
 const ctrlBtn = `flex min-h-10 items-center justify-center rounded-lg border border-[#E3E8EE] bg-white px-3 text-sm hover:bg-gray-50 dark:border-[#232836] dark:bg-[#12151C] dark:hover:bg-[#1A1F2A] ${TXT.sub}`;
@@ -589,8 +591,8 @@ function CollapsibleCard({
 }
 
 /**
- * 광고비 카드 안의 '시딩·브랜딩' 스위치. 켜면 시딩·브랜딩 비용(그 달 일수로 나눔)이 광고비에 들어가고
- * MER·공헌이익·일별 차트·채널 성과 MER 도 같이 바뀐다. 끄면 메타 + 네이버 광고비만 (매일 광고 효율용).
+ * 머리줄의 '시딩과 브랜딩' 스위치. 켜면 시딩과 브랜딩 비용(그 달 일수로 나눔)이 광고비에 들어가고
+ * MER·공헌이익·일별 표·채널 성과 MER 도 같이 바뀐다. 끄면 메타 + 네이버 광고비만 (매일 광고 효율용).
  */
 function MarketingSwitch({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   return (
@@ -599,7 +601,7 @@ function MarketingSwitch({ on, onToggle }: { on: boolean; onToggle: () => void }
       role="switch"
       aria-checked={on}
       onClick={onToggle}
-      title="켜면 시딩·브랜딩 비용(그 달 일수로 나눔)을 광고비에 포함합니다. MER·공헌이익도 같이 바뀝니다."
+      title="켜면 시딩과 브랜딩 비용(그 달 일수로 나눔)을 광고비에 포함합니다. MER·공헌이익도 같이 바뀝니다."
       className={`flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${on
         ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
         : "border-gray-200 text-gray-500 hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"}`}
@@ -607,14 +609,10 @@ function MarketingSwitch({ on, onToggle }: { on: boolean; onToggle: () => void }
       <span aria-hidden="true" className={`relative inline-block h-3 w-5 rounded-full transition-colors ${on ? "bg-violet-500" : "bg-gray-300 dark:bg-zinc-600"}`}>
         <span className={`absolute top-0.5 h-2 w-2 rounded-full bg-white transition-all ${on ? "left-2.5" : "left-0.5"}`} />
       </span>
-      시딩·브랜딩
+      시딩과 브랜딩
     </button>
   );
 }
-
-
-
-
 
 // ────────────────────────────────────────────────────────────────────────────
 // 3. Bottom detail tables
