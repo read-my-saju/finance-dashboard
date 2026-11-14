@@ -669,7 +669,7 @@ function MarketingSwitch({ on, onToggle }: { on: boolean; onToggle: () => void }
       aria-checked={on}
       onClick={onToggle}
       title="켜면 시딩과 브랜딩 비용(그 달 일수로 나눔)을 광고비에 포함합니다. MER·공헌이익도 같이 바뀝니다."
-      className={`mt-1 flex min-h-11 w-full items-center gap-2 rounded-lg text-left text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${on ? "text-violet-700 dark:text-violet-300" : TXT.sub}`}
+      className={`-mb-3 -mt-1 flex min-h-11 w-full items-center gap-2 rounded-lg py-3 text-left text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${on ? "text-violet-700 dark:text-violet-300" : TXT.sub}`}
     >
       <span aria-hidden="true" className={`relative inline-block h-5 w-9 shrink-0 rounded-full transition-colors ${on ? "bg-violet-500" : "bg-gray-300 dark:bg-zinc-600"}`}>
         <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${on ? "left-[18px]" : "left-0.5"}`} />

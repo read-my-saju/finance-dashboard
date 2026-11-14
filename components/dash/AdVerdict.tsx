@@ -151,7 +151,14 @@ export default function AdVerdict({ data, campaigns, loading, live, asOf, theme 
                     <Fact label="공헌이익" value={money(c.profit)} tone={c.profit < 0 && !live ? "loss" : undefined} />
                   </div>
                   <p className={`mt-3 text-xs ${TXT.dim}`}>
-                    마지막 클릭 {pct(c.lastClickRoas)}, CTR {c.ctr == null ? "—" : pct(c.ctr, 2)}, CPM {c.cpm == null ? "—" : `₩${Math.round(c.cpm).toLocaleString("ko-KR")}`}, 일 예산 {c.dailyBudget ? fmtMan(c.dailyBudget) : "—"}
+                    {[
+                      `마지막 클릭 ${pct(c.lastClickRoas)}`,
+                      `CTR ${c.ctr == null ? "—" : pct(c.ctr, 2)}`,
+                      `CPM ${c.cpm == null ? "—" : `₩${Math.round(c.cpm).toLocaleString("ko-KR")}`}`,
+                      `일 예산 ${c.dailyBudget ? fmtMan(c.dailyBudget) : "—"}`,
+                    ].map((t, i) => (
+                      <span key={i}><span className="whitespace-nowrap">{t}{i < 3 && ","}</span>{i < 3 && " "}</span>
+                    ))}
                   </p>
                 </li>
               ))}

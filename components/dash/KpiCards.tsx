@@ -29,13 +29,18 @@ function Delta({ v, tone, suffix, unit = "%" }: { v: number | null; tone: "gray"
 }
 
 // 휴대폰 2열에서 카드마다 줄 구성을 같게: 이름, 큰 숫자, 비교, 보조(한 줄 말줄임) 4줄 고정. 카드 높이는 같은 행끼리 그리드가 맞춘다.
-function Card({ label, value, compare, sub, accent, footer }: { label: string; value: string; compare: React.ReactNode; sub: string; accent?: boolean; footer?: React.ReactNode }) {
+function Card({ label, labelRight, subPhone, value, compare, sub, accent, footer }: { label: string; labelRight?: string; subPhone?: string; value: string; compare: React.ReactNode; sub: string; accent?: boolean; footer?: React.ReactNode }) {
   return (
     <div className={`${CARD} min-w-0 !p-4 ${accent ? "!border-[#15803d]/50 dark:!border-[#3fb950]/50" : ""}`}>
-      <div className={`text-[13px] font-medium leading-4 md:text-xs ${TXT.sub}`}>{label}</div>
+      <div className={`flex items-baseline justify-between gap-2 text-[13px] font-medium leading-4 md:text-xs ${TXT.sub}`}>
+        <span>{label}</span>
+        {labelRight && <span className={`text-xs font-normal tabular-nums md:hidden ${TXT.dim}`}>{labelRight}</span>}
+      </div>
       <div className={`mt-1 break-words text-2xl font-extrabold tabular-nums tracking-tight ${TXT.main}`}>{value}</div>
       <div className="mt-2 truncate text-xs leading-4 md:overflow-visible md:whitespace-normal">{compare}</div>
-      <div title={sub} className={`mt-1 min-h-4 truncate text-xs leading-4 md:overflow-visible md:whitespace-normal ${TXT.dim}`}>{sub}</div>
+      <div title={sub} className={`mt-1 min-h-4 truncate text-xs leading-4 md:overflow-visible md:whitespace-normal ${TXT.dim}`}>
+        {subPhone ? <><span className="md:hidden">{subPhone}</span><span className="hidden md:inline">{sub}</span></> : sub}
+      </div>
       {footer}
     </div>
   );
@@ -84,6 +89,8 @@ export default function KpiCards({ totals, prev, adBreakdown, daily, live, stale
     <div className={`grid grid-cols-2 gap-2 transition-opacity sm:grid-cols-3 sm:gap-4 xl:grid-cols-6 ${stale ? "opacity-60" : ""}`}>
       <Card
         label="결제매출" value={mm(revenue)} compare={revenueCompare}
+        labelRight={t ? `${t.reportCount.toLocaleString("en-US")}건` : undefined}
+        subPhone={t ? `부가세 제외 ${fmtMan(t.revenueExVat)}` : "—"}
         sub={t ? `부가세 제외 ${fmtMan(t.revenueExVat)}, 결제 ${t.reportCount.toLocaleString("en-US")}건` : "—"}
       />
       <Card label="광고비" value={mm(t?.adSpend)} compare={ago(delta((d) => d.adSpend, (p) => p.adSpend), "gray")} sub={adSub(adBreakdown)} footer={marketingSwitch} />
