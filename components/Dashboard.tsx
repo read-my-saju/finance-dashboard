@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ChannelsData } from "./ChannelSection";
+import type { ChannelsData } from "./dash/ui";
+import RevenueSources from "./dash/RevenueSources";
 import AdVerdict from "./dash/AdVerdict";
 import SetSales from "./SetSales";
 import { TXT } from "./dash/ui";
@@ -174,7 +175,7 @@ function useIncludeMarketing(): [boolean, () => void] {
 
 const NUM = new Intl.NumberFormat("ko-KR");
 
-// 오늘 = KST 날짜 (API 의 from/until 이 KST 라 서버(UTC)·브라우저 시간대와 무관하게 맞춤. ChannelSection kstToday 와 같은 식)
+// 오늘 = KST 날짜 (API 의 from/until 이 KST 라 서버(UTC)·브라우저 시간대와 무관하게 맞춤.)
 function todayStr(): string {
   return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 }
@@ -205,7 +206,7 @@ function fmtPct(n: number | null, digits = 1): string {
 
 export default function Dashboard() {
   // 기본 = 최근 7일 (광고 판정 기간과 같게. 전체 기간은 채널 성과가 9/3부터라 기간이 어긋남). 두 날짜는 같은 '오늘'에서.
-  const [range, setRange] = useState(() => presetRange("week", todayStr()));
+  const [range, setRange] = useState(() => presetRange("today", todayStr()));
   const { from, until } = range;
   const setFrom = (f: string) => setRange((r) => ({ ...r, from: f }));
   const setUntil = (u: string) => setRange((r) => ({ ...r, until: u }));
@@ -408,6 +409,8 @@ export default function Dashboard() {
         asOf={channelsView?.attributionAsOf ?? null}
         theme={theme}
       />
+
+      <RevenueSources data={channelsView} loading={channelsLoading} theme={theme} />
 
       {/* ── 1-2. 세트 판매 (채널 성과와 같은 결제·귀속 데이터) ───────────────── */}
       {channelsView?.cur?.sets && (

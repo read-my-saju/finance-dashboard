@@ -2,11 +2,10 @@
 
 /** 광고 판정: 메타 ROAS(광고관리자 기준)와 손익분기를 비교하고 캠페인별로 증액/유지/감액을 보여준다. */
 import { useMemo } from "react";
-import type { ChannelsData } from "@/components/ChannelSection";
 import {
   fmtMan, mergeCampaignOps, verdictOf, type CampaignOps, type CampaignView, type Verdict,
 } from "@/lib/dashboard-view";
-import { CARD, SERIES, SectionHead, StatusChip, TXT } from "./ui";
+import { CARD, SERIES, SectionHead, StatusChip, TXT, type ChannelsData } from "./ui";
 
 type CampaignsLike = { campaigns: CampaignOps[]; metaError?: string | null } | null;
 

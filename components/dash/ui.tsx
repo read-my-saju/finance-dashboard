@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { Verdict } from "@/lib/dashboard-view";
+import type { ChannelPeriod } from "@/lib/channel-revenue";
 
 export const CARD =
   "rounded-2xl border border-[#E3E8EE] bg-white p-5 dark:border-[#232836] dark:bg-[#12151C]";
@@ -63,11 +64,26 @@ export const SERIES: { light: Record<SeriesKey, string>; dark: Record<SeriesKey,
   light: {
     revenue: "#2a78d6", ad: "#eb6834", profit: "#1baf7a", meta: "#2a78d6", search: "#eb6834",
     unattributed: "#b9b7b1", owned: "#1baf7a", referral: "#6250d6",
-    influencer: "#eda100", search_ad: "#4a3aa7", costs: "#9AA3B2",
+    influencer: "#eda100", search_ad: "#e87ba4", costs: "#9AA3B2",
   },
   dark: {
     revenue: "#3987e5", ad: "#d95926", profit: "#199e70", meta: "#3987e5", search: "#d95926",
     unattributed: "#55554F", owned: "#199e70", referral: "#9085e9",
-    influencer: "#c98500", search_ad: "#9085e9", costs: "#6B7385",
+    influencer: "#c98500", search_ad: "#d55181", costs: "#6B7385",
   },
 };
+
+export type ChannelsData = {
+  range: { from: string; until: string };
+  prevRange: { from: string; until: string } | null;
+  clampedFrom: string | null;
+  attributionAsOf?: string | null;
+  attributionStale?: boolean;
+  cur: ChannelPeriod | null;
+  prev: ChannelPeriod | null;
+  error: string | null;
+};
+
+export const NUM = new Intl.NumberFormat("ko-KR");
+export const man = (n: number) => (Math.abs(n) >= 1e8 ? `${(n / 1e8).toFixed(2)}억` : `${NUM.format(Math.round(n / 1e4))}만`);
+export const fmtDay = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;

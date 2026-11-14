@@ -7,7 +7,7 @@
  */
 import { breakAtUnderscore, commonCampaignWords, shortCampaignName } from "@/lib/campaign-name";
 import type { SetSales as SetSalesData } from "@/lib/channel-revenue";
-import { fmtDay, man, NUM } from "./ChannelSection";
+import { fmtDay, man, NUM } from "./dash/ui";
 
 type Theme = "light" | "dark";
 
