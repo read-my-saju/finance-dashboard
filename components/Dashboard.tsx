@@ -453,7 +453,7 @@ export default function Dashboard() {
           <CollapsibleCard
             title="세트 판매"
             subtitle={`세트 ${channelsView!.cur!.sets.n.toLocaleString("ko-KR")}건`}
-            defaultOpen
+            defaultOpen={false}
           >
             <SetSales sets={channelsView!.cur!.sets} theme={theme} />
           </CollapsibleCard>
