@@ -6,7 +6,7 @@
  */
 import assert from "node:assert/strict";
 import { contributionProfitAtRoas } from "./calc";
-import { channelMix, fmtMan, mergeCampaignOps, presetOf, presetRange, profitBreakdown, profitHeadline, sameTimeRevenue, verdictOf } from "./dashboard-view";
+import { channelMix, fmtMan, mergeCampaignOps, presetOf, presetRange, sameTimeRevenue, verdictOf } from "./dashboard-view";
 
 assert.deepEqual(presetRange("week", "2026-11-14"), { from: "2026-11-07", until: "2026-11-13" });
 assert.deepEqual(presetRange("month30", "2026-11-14"), { from: "2026-10-15", until: "2026-11-13" });
@@ -26,18 +26,6 @@ assert.equal(fmtMan(-280000), "−28만");
 assert.equal(fmtMan(0), "0원");
 assert.equal(fmtMan(250), "250원");
 assert.equal(fmtMan(-300), "−300원");
-const wk = { netRevenue: 39455700, vat: 3586882, revenueExVat: 35868818, pgFee: 1360206, reportCost: 550500, adSpend: 26661153, contributionProfit: 7296960 };
-const b = profitBreakdown(wk);
-assert.deepEqual(b.rows.map((r) => r.sign + r.label), ["결제매출", "−부가세", "=부가세 제외 매출", "−결제수수료", "−리포트 원가", "−광고비", "=공헌이익 (남는 돈)"]);
-assert.equal(b.profitPer100.toFixed(1), "18.5");
-assert.deepEqual(b.segs.map((s) => s.per100.toFixed(1)), ["13.9", "67.6", "18.5"]);
-assert.equal(profitHeadline(b.profitPer100, false), "결제 100원 중 18.5원이 남습니다");
-assert.equal(profitHeadline(46.3, true), "결제 100원 중 46.3원이 남습니다 (진행 중)");
-const loss = profitBreakdown({ netRevenue: 1000000, vat: 90909, revenueExVat: 909091, pgFee: 32000, reportCost: 5000, adSpend: 1200000, contributionProfit: -327909 });
-assert.equal(loss.segs[2].amount, 0);
-assert.equal(profitHeadline(loss.profitPer100, false), "결제 100원당 32.8원 손실입니다");
-assert.equal(profitHeadline(-32.8, true), "결제 100원당 32.8원 손실입니다 (진행 중)");
-assert.ok(profitBreakdown({ ...wk, netRevenue: 0 }).rows.every((r) => Number.isFinite(r.per100)));
 assert.equal(verdictOf(138.6, 116.2), "good");
 assert.equal(verdictOf(120, 116.2), "warn");
 assert.equal(verdictOf(110, 116.2), "bad");
@@ -46,7 +34,6 @@ assert.equal(verdictOf(121.2, 116.2), "good");
 assert.equal(verdictOf(121.1, 116.2), "warn");
 assert.equal(verdictOf(116.2, 116.2), "warn");
 assert.equal(verdictOf(116.1, 116.2), "bad");
-assert.deepEqual(b.segs.map((s) => s.label), ["세금과 비용", "광고비", "남는 돈"]);
 
 const kids = [
   { key: "a", name: "26_3Q_성공운_sales_rebranding_판매", campaignId: "a", rev: 300, n: 3, newRev: 0, newN: 0, spend: 100, roas: 300, pixelRoas: 150, breakEvenRoas: 116, contributionProfit: 0 },

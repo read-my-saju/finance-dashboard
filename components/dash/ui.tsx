@@ -3,7 +3,7 @@ import type { Verdict } from "@/lib/dashboard-view";
 import type { ChannelPeriod } from "@/lib/channel-revenue";
 
 export const CARD =
-  "rounded-2xl border border-[#E3E8EE] bg-white p-5 dark:border-[#232836] dark:bg-[#12151C]";
+  "rounded-2xl border border-[#E3E8EE] bg-white p-4 md:p-5 dark:border-[#232836] dark:bg-[#12151C]";
 
 export const TXT = {
   main: "text-[#0D1B2A] dark:text-[#ECEEF2]",
@@ -11,12 +11,15 @@ export const TXT = {
   dim: "text-[#6B7280] dark:text-[#8A92A3]",
 };
 
+export const H2 = "text-[17px] font-extrabold tracking-tight md:text-lg";
+export const SUB = "mt-1 text-[13px] md:text-sm";
+
 export function SectionHead({ title, sub, right }: { title: string; sub?: string; right?: ReactNode }) {
   return (
-    <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+    <div className="mb-4 flex flex-wrap items-end justify-between gap-2 md:mb-3">
       <div>
-        <h2 className={`text-lg font-extrabold tracking-tight ${TXT.main}`}>{title}</h2>
-        {sub && <p className={`mt-0.5 text-sm ${TXT.sub}`}>{sub}</p>}
+        <h2 className={`${H2} ${TXT.main}`}>{title}</h2>
+        {sub && <p className={`${SUB} ${TXT.sub}`}>{sub}</p>}
       </div>
       {right}
     </div>
@@ -58,18 +61,18 @@ export function StatusChip({ tone, children }: { tone: Tone; children: ReactNode
 
 export type SeriesKey =
   | "revenue" | "ad" | "profit" | "meta" | "search" | "unattributed"
-  | "owned" | "referral" | "influencer" | "search_ad" | "costs";
+  | "owned" | "referral" | "influencer" | "search_ad";
 
 export const SERIES: { light: Record<SeriesKey, string>; dark: Record<SeriesKey, string> } = {
   light: {
     revenue: "#2a78d6", ad: "#eb6834", profit: "#1baf7a", meta: "#2a78d6", search: "#eb6834",
     unattributed: "#b9b7b1", owned: "#1baf7a", referral: "#6250d6",
-    influencer: "#eda100", search_ad: "#e87ba4", costs: "#9AA3B2",
+    influencer: "#eda100", search_ad: "#e87ba4",
   },
   dark: {
     revenue: "#3987e5", ad: "#d95926", profit: "#199e70", meta: "#3987e5", search: "#d95926",
     unattributed: "#55554F", owned: "#199e70", referral: "#9085e9",
-    influencer: "#c98500", search_ad: "#d55181", costs: "#6B7385",
+    influencer: "#c98500", search_ad: "#d55181",
   },
 };
 

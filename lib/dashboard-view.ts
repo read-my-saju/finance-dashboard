@@ -57,40 +57,6 @@ export function fmtMan(won: number): string {
   return sign + man.toFixed(1).replace(/\.0$/, "") + "만";
 }
 
-export type BreakdownInput = { netRevenue: number; vat: number; revenueExVat: number; pgFee: number; reportCost: number; adSpend: number; contributionProfit: number };
-export type BreakdownRow = { sign: "" | "−" | "="; label: string; amount: number; per100: number; kind: "start" | "minus" | "eq" | "final" };
-export type BreakdownSeg = { key: "costs" | "ad" | "profit"; label: string; amount: number; per100: number };
-
-export function profitBreakdown(t: BreakdownInput): { rows: BreakdownRow[]; segs: BreakdownSeg[]; profitPer100: number } {
-  const p = (n: number) => (t.netRevenue === 0 ? 0 : (n / t.netRevenue) * 100);
-  const row = (sign: BreakdownRow["sign"], label: string, amount: number, kind: BreakdownRow["kind"]): BreakdownRow =>
-    ({ sign, label, amount, per100: p(amount), kind });
-  const costs = t.vat + t.pgFee + t.reportCost;
-  const profit = Math.max(t.contributionProfit, 0);
-  return {
-    rows: [
-      row("", "결제매출", t.netRevenue, "start"),
-      row("−", "부가세", t.vat, "minus"),
-      row("=", "부가세 제외 매출", t.revenueExVat, "eq"),
-      row("−", "결제수수료", t.pgFee, "minus"),
-      row("−", "리포트 원가", t.reportCost, "minus"),
-      row("−", "광고비", t.adSpend, "minus"),
-      row("=", "공헌이익 (남는 돈)", t.contributionProfit, "final"),
-    ],
-    segs: [
-      { key: "costs", label: "세금과 비용", amount: costs, per100: p(costs) },
-      { key: "ad", label: "광고비", amount: t.adSpend, per100: p(t.adSpend) },
-      { key: "profit", label: "남는 돈", amount: profit, per100: p(profit) },
-    ],
-    profitPer100: p(t.contributionProfit),
-  };
-}
-
-export function profitHeadline(profitPer100: number, live: boolean): string {
-  if (profitPer100 < 0) return `결제 100원당 ${(-profitPer100).toFixed(1)}원 손실입니다${live ? " (진행 중)" : ""}`;
-  return `결제 100원 중 ${profitPer100.toFixed(1)}원이 남습니다${live ? " (진행 중)" : ""}`;
-}
-
 export type Verdict = "good" | "warn" | "bad";
 
 /** 메타 ROAS - 손익분기: 5%p 이상 good, 0~5%p warn, 0 미만 bad. 부동소수점 오차는 소수 6자리로 정리. */

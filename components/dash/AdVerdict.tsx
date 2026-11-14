@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import {
   fmtMan, mergeCampaignOps, verdictOf, type CampaignOps, type CampaignView, type Verdict,
 } from "@/lib/dashboard-view";
-import { CARD, SERIES, SectionHead, StatusChip, TXT, type ChannelsData } from "./ui";
+import { CARD, H2, SERIES, SUB, SectionHead, StatusChip, TXT, type ChannelsData } from "./ui";
 
 type CampaignsLike = { campaigns: CampaignOps[]; metaError?: string | null } | null;
 
@@ -78,20 +78,20 @@ export default function AdVerdict({ data, campaigns, loading, live, asOf, theme 
   return (
     <section className="mt-6" aria-labelledby="ad-verdict">
       <div className={`${CARD} transition-opacity ${loading ? "opacity-60" : ""}`}>
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2.5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 id="ad-verdict" className={`text-lg font-extrabold tracking-tight ${TXT.main}`}>광고 판정</h2>
-            <p className={`mt-0.5 text-sm ${TXT.sub}`}>메타 ROAS(광고관리자 기준)와 손익분기를 비교합니다</p>
+            <h2 id="ad-verdict" className={`${H2} ${TXT.main}`}>광고 판정</h2>
+            <p className={`${SUB} ${TXT.sub}`}>메타 ROAS(광고관리자 기준)와 손익분기를 비교합니다</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">{head}{checkChip}</div>
         </div>
 
-        <div className="flex flex-wrap gap-7">
+        <div className="flex flex-wrap gap-6">
           <div className="flex min-w-0 flex-[1_1_260px] flex-col gap-4">
             <div>
-              <span className={`text-[13px] ${TXT.sub}`}>메타 ROAS</span>
-              <div className="mt-1 flex flex-wrap items-baseline gap-2.5">
-                <span className={`text-5xl font-bold leading-none tracking-tight tabular-nums sm:text-[56px] ${TXT.main}`}>{pct(roas)}</span>
+              <span className={`text-[13px] md:text-sm ${TXT.sub}`}>메타 ROAS</span>
+              <div className="mt-1 flex flex-wrap items-baseline gap-2">
+                <span className={`text-[40px] font-bold leading-none tracking-tight tabular-nums sm:text-[56px] ${TXT.main}`}>{pct(roas)}</span>
                 {live ? (
                   <span className={`text-xs ${TXT.dim}`}>{asOf ? `${clockWithDay(asOf)} 기준, ` : ""}하루 동안 계속 바뀝니다</span>
                 ) : prevDiff != null && prev?.pixelRoas != null && Math.abs(prevDiff) >= 0.05 ? (
@@ -114,7 +114,7 @@ export default function AdVerdict({ data, campaigns, loading, live, asOf, theme 
                   <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${scale(roas)}%`, background: color }} />
                   <div className={`absolute -bottom-[5px] -top-[5px] w-0.5 rounded-sm ${MARK}`} style={{ left: `calc(${scale(bep)}% - 1px)` }} />
                 </div>
-                <div className={`mt-1.5 flex justify-between text-[11px] tabular-nums ${TXT.dim}`}><span>0%</span><span>100%</span><span>200%</span></div>
+                <div className={`mt-2 flex justify-between text-xs tabular-nums ${TXT.dim}`}><span>0%</span><span>100%</span><span>200%</span></div>
               </div>
             )}
 
@@ -126,7 +126,7 @@ export default function AdVerdict({ data, campaigns, loading, live, asOf, theme 
               </div>
             )}
 
-            <div className={`grid grid-cols-3 gap-2.5 border-t pt-3.5 ${LINE}`}>
+            <div className={`grid grid-cols-3 gap-2 border-t pt-4 ${LINE}`}>
               <Fact label="광고비" value={money(meta.spend)} />
               <Fact label="공헌이익" value={money(totalProfit)} />
               <Fact label="마지막 클릭" value={pct(cur.metaRoas)} dim />
@@ -134,28 +134,28 @@ export default function AdVerdict({ data, campaigns, loading, live, asOf, theme 
           </div>
 
           <div className="min-w-0 flex-[999_1_560px]">
-            <ul className="md:hidden" aria-label="캠페인별 판정">
+            <ul className="flex flex-col gap-2 md:hidden" aria-label="캠페인별 판정">
               {rows.length === 0 && <li className={`py-6 text-center text-sm ${TXT.dim}`}>광고비를 쓴 캠페인이 없습니다.</li>}
               {rows.map((c) => (
-                <li key={c.campaignId} className={`border-b py-3.5 text-[13px] ${LINE} ${TXT.main}`}>
-                  <div className="flex items-start justify-between gap-2.5">
-                    <div className="flex min-w-0 flex-col gap-0.5">
+                <li key={c.campaignId} className={`rounded-xl border p-4 text-sm ${LINE} ${TXT.main}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 flex-col gap-1">
                       <span className="break-words break-keep font-semibold">{c.name}</span>
-                      <span className={`text-[11px] ${TXT.dim}`}>마지막 클릭 결제 {c.lastClickN}건</span>
+                      <span className={`text-xs ${TXT.dim}`}>마지막 클릭 결제 {c.lastClickN}건</span>
                     </div>
                     <div className="shrink-0"><VerdictCell c={c} live={live} bep={bep} /></div>
                   </div>
-                  <div className="mt-2.5"><RoasBar c={c} bep={bep} color={color} /></div>
-                  <div className="mt-2.5 grid grid-cols-2 gap-2.5">
+                  <div className="mt-3"><RoasBar c={c} bep={bep} color={color} /></div>
+                  <div className="mt-3 grid grid-cols-2 gap-4">
                     <Fact label="광고비" value={money(c.spend)} />
                     <Fact label="공헌이익" value={money(c.profit)} tone={c.profit < 0 && !live ? "loss" : undefined} />
                   </div>
-                  <p className={`mt-2 text-[11px] ${TXT.dim}`}>
+                  <p className={`mt-3 text-xs ${TXT.dim}`}>
                     마지막 클릭 {pct(c.lastClickRoas)}, CTR {c.ctr == null ? "—" : pct(c.ctr, 2)}, CPM {c.cpm == null ? "—" : `₩${Math.round(c.cpm).toLocaleString("ko-KR")}`}, 일 예산 {c.dailyBudget ? fmtMan(c.dailyBudget) : "—"}
                   </p>
                 </li>
               ))}
-              <li className="py-3.5 text-[13px] font-bold">
+              <li className={`rounded-xl border p-4 text-sm font-bold ${LINE}`}>
                 <div className={`flex items-baseline justify-between ${TXT.main}`}>
                   <span>메타 전체</span>
                   <span className="tabular-nums">{pct(roas)}</span>
@@ -165,7 +165,7 @@ export default function AdVerdict({ data, campaigns, loading, live, asOf, theme 
                 </div>
               </li>
             </ul>
-            <p className={`mx-1 mt-1.5 text-[11px] md:hidden ${TXT.dim}`}>공헌이익은 광고비 × (메타 ROAS ÷ 손익분기 − 1)입니다.</p>
+            <p className={`mx-1 mt-2 text-xs md:hidden ${TXT.dim}`}>공헌이익은 광고비 × (메타 ROAS ÷ 손익분기 − 1)입니다.</p>
             <div className="hidden overflow-x-auto md:block">
             <div className="min-w-[860px]">
               <div className={`${COLS} border-b px-1 pb-2.5 text-xs ${LINE} ${TXT.dim}`}>
@@ -179,7 +179,7 @@ export default function AdVerdict({ data, campaigns, loading, live, asOf, theme 
                   <div key={c.campaignId} className={`${COLS} items-center border-b px-1 py-3 text-[13px] ${LINE} ${TXT.main}`}>
                     <div className="flex min-w-0 flex-col gap-0.5">
                       <span className="break-words break-keep font-semibold" title={c.name}>{c.name}</span>
-                      <span className={`text-[11px] ${TXT.dim}`}>마지막 클릭 결제 {c.lastClickN}건</span>
+                      <span className={`text-xs ${TXT.dim}`}>마지막 클릭 결제 {c.lastClickN}건</span>
                     </div>
                     <span className="text-right tabular-nums">{money(c.spend)}</span>
                     <RoasBar c={c} bep={bep} color={color} />
@@ -201,12 +201,12 @@ export default function AdVerdict({ data, campaigns, loading, live, asOf, theme 
                 <span className={`text-right font-semibold tabular-nums ${TXT.sub}`}>{pct(cur.metaRoas)}</span>
                 <span /><span /><span />
               </div>
-              <p className={`mx-1 mt-1.5 whitespace-normal text-[11px] ${TXT.dim}`}>
+              <p className={`mx-1 mt-1.5 whitespace-normal text-xs ${TXT.dim}`}>
                 공헌이익은 광고비 × (메타 ROAS ÷ 손익분기 − 1)입니다. 마지막 클릭은 광고를 마지막으로 클릭하고 산 실제 결제 기준이라 참고로만 봅니다.
               </p>
             </div>
             </div>
-            {campaigns?.metaError && <p className="mx-1 mt-1 text-[11px] text-[#b45309] dark:text-[#fab219]">{campaigns.metaError}</p>}
+            {campaigns?.metaError && <p className="mx-1 mt-1 text-xs text-[#b45309] dark:text-[#fab219]">{campaigns.metaError}</p>}
           </div>
         </div>
       </div>
@@ -216,12 +216,12 @@ export default function AdVerdict({ data, campaigns, loading, live, asOf, theme 
 
 function RoasBar({ c, bep, color }: { c: CampaignView; bep: number; color: string }) {
   return (
-    <div className="flex items-center gap-2.5">
+    <div className="flex items-center gap-3">
       <div className={`relative h-2 flex-1 rounded-full ${TRACK}`}>
         <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${scale(c.metaRoas ?? 0)}%`, background: color }} />
         <div className={`absolute -bottom-1 -top-1 w-0.5 ${MARK}`} style={{ left: `calc(${scale(bep)}% - 1px)` }} />
       </div>
-      <span className="w-[52px] text-right font-semibold tabular-nums">{pct(c.metaRoas)}</span>
+      <span className="w-14 shrink-0 text-right font-semibold tabular-nums">{pct(c.metaRoas)}</span>
     </div>
   );
 }
@@ -236,7 +236,7 @@ function VerdictCell({ c, live, bep }: { c: CampaignView; live: boolean; bep: nu
 
 function Fact({ label, value, dim, tone }: { label: string; value: string; dim?: boolean; tone?: "loss" }) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5">
+    <div className="flex min-w-0 flex-col gap-1">
       <span className={`text-xs ${TXT.dim}`}>{label}</span>
       <span className={`text-base font-semibold tabular-nums ${tone === "loss" ? "text-[#dc2626] dark:text-[#f07070]" : dim ? TXT.sub : TXT.main}`}>{value}</span>
     </div>
