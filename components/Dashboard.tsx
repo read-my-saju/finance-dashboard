@@ -5,6 +5,8 @@ import { calculateBreakEvenRoas, calculateRoas } from "@/lib/calc";
 import { breakAtUnderscore } from "@/lib/campaign-name";
 import ChannelSection, { type ChannelsData } from "./ChannelSection";
 import SetSales from "./SetSales";
+import { TXT } from "./dash/ui";
+import { presetOf, presetRange, type PresetKey } from "@/lib/dashboard-view";
 import {
   Bar,
   BarChart,
@@ -354,8 +356,10 @@ function monthLabel(month: string): string {
 
 export default function Dashboard() {
   // 기본 = 최근 7일 (광고 판정 기간과 같게. 전체 기간은 채널 성과가 9/3부터라 기간이 어긋남). 두 날짜는 같은 '오늘'에서.
-  const [until, setUntil] = useState<string>(todayStr);
-  const [from, setFrom] = useState<string>(() => addDays(until, -6));
+  const [range, setRange] = useState(() => presetRange("week", todayStr()));
+  const { from, until } = range;
+  const setFrom = (f: string) => setRange((r) => ({ ...r, from: f }));
+  const setUntil = (u: string) => setRange((r) => ({ ...r, until: u }));
   const [payments, setPayments] = useState<PaymentsData | null>(null);
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [daily, setDaily] = useState<DailyData | null>(null);
@@ -490,6 +494,9 @@ export default function Dashboard() {
         cached={Boolean(payments?.cached && summaryView?.cached && dailyView?.cached)}
         theme={theme}
         onToggleTheme={toggleTheme}
+        from={from} until={until}
+        includeMarketing={includeMarketing}
+        onToggleMarketing={toggleMarketing}
       />
 
       <FilterBar
@@ -632,23 +639,54 @@ export default function Dashboard() {
 // Layout pieces
 // ────────────────────────────────────────────────────────────────────────────
 
+const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
+// 날짜 문자열을 UTC 로 읽어 브라우저 시간대와 무관하게 요일을 구함
+function mdWd(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()} (${WEEKDAYS[d.getUTCDay()]})`;
+}
+
+function periodDescription(from: string, until: string, kstTime: string): string {
+  const today = todayStr();
+  if (from === today && until === today) {
+    return `${mdWd(today)} ${kstTime} 기준, 진행 중. 비교는 어제 같은 시각`;
+  }
+  // 오늘이 끼면 오늘은 미완료라 완료 일수에서 뺀다
+  const n = diffDays(from, until) - (until >= today && from <= today ? 1 : 0);
+  return `${mdWd(from)} – ${mdWd(until)}, 완료된 ${n}일. 화살표는 이전 ${n}일 대비`;
+}
+
+const ctrlBtn = `flex min-h-10 items-center justify-center rounded-lg border border-[#E3E8EE] bg-white px-3 text-sm hover:bg-gray-50 dark:border-[#232836] dark:bg-[#12151C] dark:hover:bg-[#1A1F2A] ${TXT.sub}`;
+
 function Header({
-  fetchedAt, cached, theme, onToggleTheme,
-}: { fetchedAt?: string; cached?: boolean; theme: Theme; onToggleTheme: () => void }) {
+  fetchedAt, cached, theme, onToggleTheme, from, until, includeMarketing, onToggleMarketing,
+}: {
+  fetchedAt?: string; cached?: boolean; theme: Theme; onToggleTheme: () => void;
+  from: string; until: string; includeMarketing: boolean; onToggleMarketing: () => void;
+}) {
+  // 서버·브라우저 렌더 불일치를 피하려고 마운트 뒤에 KST 시각을 채움
+  const [kstTime, setKstTime] = useState("");
+  useEffect(() => {
+    const tick = () => setKstTime(new Date().toLocaleTimeString("en-GB", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit" }));
+    tick();
+    const id = setInterval(tick, 30000);
+    return () => clearInterval(id);
+  }, []);
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-2">
+    <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="text-lg font-semibold tracking-tight text-gray-900 dark:text-zinc-100 sm:text-xl">결제 · 광고 손익 대시보드</h1>
-        <p className="mt-0.5 text-xs text-gray-400 dark:text-zinc-500">Read My Saju · PortOne × Meta</p>
+        <h1 className={`text-lg font-extrabold tracking-tight sm:text-xl ${TXT.main}`}>결제와 광고 손익 대시보드</h1>
+        <p className={`mt-0.5 text-sm ${TXT.sub}`}>{periodDescription(from, until, kstTime)}</p>
       </div>
-      <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-zinc-500">
+      <div className={`flex flex-wrap items-center gap-2 text-xs ${TXT.dim}`}>
         {fetchedAt && <span>업데이트 {new Date(fetchedAt).toLocaleString("ko-KR")}</span>}
         {cached && <span className="rounded bg-gray-100 px-2 py-0.5 dark:bg-zinc-800">cached</span>}
+        <MarketingSwitch on={includeMarketing} onToggle={onToggleMarketing} />
         <button
           type="button"
           onClick={onToggleTheme}
           aria-label={theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환"}
-          className="flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          className={`${ctrlBtn} w-10 px-0`}
         >
           {theme === "dark" ? (
             <svg className="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -665,7 +703,10 @@ function Header({
   );
 }
 
-const filterBtnCls = "rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800";
+const PRESETS: [PresetKey, string][] = [
+  ["today", "오늘"], ["yesterday", "어제"], ["week", "7일"], ["month30", "30일"],
+  ["thisMonth", "이번 달"], ["lastMonth", "지난 달"], ["all", "전체"],
+];
 
 /** 광고비 카드 아래 내역: 메타·네이버, 시딩·브랜딩은 포함/별도를 구분해 적는다. */
 function adSpendSubText(ab: AdBreakdown | undefined): string | undefined {
@@ -689,31 +730,43 @@ function FilterBar({
   setFrom: (s: string) => void; setUntil: (s: string) => void;
   loading: boolean; onRefresh: () => void; onLogout: () => void;
 }) {
+  const today = todayStr();
+  const current = presetOf(from, until, today);
+  const dateBox = `flex min-h-10 items-center gap-2 rounded-lg border border-[#E3E8EE] bg-white px-2 text-xs dark:border-[#232836] dark:bg-[#12151C] ${TXT.dim}`;
   return (
     <div className="mb-6 flex flex-wrap items-center gap-2">
-      <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900">
-        <span className="text-gray-500 dark:text-zinc-400">시작</span>
-        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="bg-transparent outline-none dark:text-zinc-200" />
-      </div>
-      <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900">
-        <span className="text-gray-500 dark:text-zinc-400">종료</span>
-        <input type="date" value={until} onChange={(e) => setUntil(e.target.value)} className="bg-transparent outline-none dark:text-zinc-200" />
-      </div>
-      <button type="button" onClick={() => { setFrom(todayStr()); setUntil(todayStr()); }} className={filterBtnCls}>오늘</button>
-      <button type="button" onClick={() => { setFrom(daysAgo(1)); setUntil(daysAgo(1)); }} className={filterBtnCls}>어제</button>
-      <button type="button" onClick={() => { setFrom("2026-01-01"); setUntil(todayStr()); }} className={filterBtnCls}>전체 기간</button>
-      <button type="button" onClick={() => { setFrom(daysAgo(29)); setUntil(todayStr()); }} className={filterBtnCls}>최근 30일</button>
-      <button type="button" onClick={() => { setFrom(daysAgo(6)); setUntil(todayStr()); }} className={filterBtnCls}>최근 7일</button>
+      {PRESETS.map(([key, label]) => {
+        const on = current === key;
+        return (
+          <button
+            key={key}
+            type="button"
+            aria-pressed={on}
+            onClick={() => { const r = presetRange(key, today); setFrom(r.from); setUntil(r.until); }}
+            className={`${ctrlBtn} ${on ? "!border-[#0D1B2A] !bg-[#0D1B2A] !text-white dark:!border-[#262C3B] dark:!bg-[#262C3B] dark:!text-[#ECEEF2]" : ""}`}
+          >
+            {label}
+          </button>
+        );
+      })}
       <div className="grow" />
+      <div className={dateBox}>
+        <span>시작</span>
+        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="bg-transparent outline-none dark:[color-scheme:dark]" />
+      </div>
+      <div className={dateBox}>
+        <span>종료</span>
+        <input type="date" value={until} onChange={(e) => setUntil(e.target.value)} className="bg-transparent outline-none dark:[color-scheme:dark]" />
+      </div>
       <button type="button" onClick={onRefresh} disabled={loading}
-        className="flex items-center gap-2 rounded-lg bg-portone px-4 py-2 text-sm font-medium text-white hover:bg-portone-600 disabled:opacity-50">
+        className="flex min-h-10 items-center gap-2 rounded-lg bg-portone px-4 text-sm font-medium text-white hover:bg-portone-600 disabled:opacity-50">
         <svg className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" />
         </svg>
         {loading ? "불러오는 중…" : "새로고침"}
       </button>
       <button type="button" onClick={onLogout}
-        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-500 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800">로그아웃</button>
+        className={`${ctrlBtn} !text-xs`}>로그아웃</button>
     </div>
   );
 }
@@ -823,7 +876,6 @@ function KpiStrip({
         deltaInverse
         sparkData={finishedDaily.map((d) => d.adSpend)}
         subText={adSpendSubText(adBreakdown)}
-        action={<MarketingSwitch on={includeMarketing} onToggle={onToggleMarketing} />}
         pal={pal}
       />
       <KpiCard
@@ -879,7 +931,7 @@ function MarketingSwitch({ on, onToggle }: { on: boolean; onToggle: () => void }
       aria-checked={on}
       onClick={onToggle}
       title="켜면 시딩·브랜딩 비용(그 달 일수로 나눔)을 광고비에 포함합니다. MER·공헌이익도 같이 바뀝니다."
-      className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${on
+      className={`flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${on
         ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
         : "border-gray-200 text-gray-500 hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"}`}
     >
