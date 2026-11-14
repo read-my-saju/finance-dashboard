@@ -103,7 +103,7 @@ function DailyMix({ sets, theme }: { sets: SetSalesData; theme: Theme }) {
         {[0, 1, 2, 3, 4].map((i) => (
           <g key={i}>
             <line x1={L} x2={W - R} y1={y(i * stepTick)} y2={y(i * stepTick)} stroke={ink.grid} />
-            <text x={L - 8} y={y(i * stepTick) + 4} textAnchor="end" fontSize={12} fill={ink.axis}>{i * stepTick}</text>
+            <text x={L - 8} y={y(i * stepTick) + 4} textAnchor="end" fontSize={11} fill={ink.axis}>{i * stepTick}</text>
           </g>
         ))}
         {sets.daily.map((d, i) => {
@@ -122,9 +122,9 @@ function DailyMix({ sets, theme }: { sets: SetSalesData; theme: Theme }) {
                 return <rect key={name} x={x} y={y1} width={bw} height={Math.max(h - 1, 0.5)} fill={colorOf(theme, name)} />;
               })}
               {showShare && s != null && (
-                <text x={x + bw / 2} y={y(acc) - 6} textAnchor="middle" fontSize={12} fontWeight={700} fill={ink.strong}>{s.toFixed(0)}%</text>
+                <text x={x + bw / 2} y={y(acc) - 6} textAnchor="middle" fontSize={11} fontWeight={700} fill={ink.strong}>{s.toFixed(0)}%</text>
               )}
-              {i % labelEvery === 0 && <text x={x + bw / 2} y={H - 8} textAnchor="middle" fontSize={12} fill={ink.axis}>{fmtDay(d.date)}</text>}
+              {i % labelEvery === 0 && <text x={x + bw / 2} y={H - 8} textAnchor="middle" fontSize={11} fill={ink.axis}>{fmtDay(d.date)}</text>}
             </g>
           );
         })}
