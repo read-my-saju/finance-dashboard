@@ -1,13 +1,13 @@
 "use client";
 
 /**
- * 세트 판매 카드 — 채널 성과 아래 접는 카드 안에 들어간다 (2026-10-23 시안 확정).
- * 위 '채널·캠페인별 성과' 표에 있는 결제 수·ROAS 는 다시 싣지 않고 세트 몫(마지막 클릭 실결제 기준)만 보여 준다.
+ * 세트 판매 카드 — 광고 판정과 매출 출처 아래 접는 카드 안에 들어간다 (2026-10-23 시안 확정).
+ * 광고 판정 표에 있는 결제 수·ROAS 는 다시 싣지 않고 세트 몫(마지막 클릭 실결제 기준)만 보여 준다.
  * 숫자는 /api/dashboard/channels 의 cur.sets (lib/channel-revenue.ts buildSetSales). 여기선 비율·표시만.
  */
 import { breakAtUnderscore, commonCampaignWords, shortCampaignName } from "@/lib/campaign-name";
 import type { SetSales as SetSalesData } from "@/lib/channel-revenue";
-import { fmtDay, man, NUM } from "./ChannelSection";
+import { fmtDay, man, NUM } from "./dash/ui";
 
 type Theme = "light" | "dark";
 
@@ -145,7 +145,7 @@ function ByCampaignTable({ sets, theme }: { sets: SetSalesData; theme: Theme }) 
   return (
     <section className="min-w-0">
       <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
-        캠페인별 세트 <span className="text-xs font-normal text-gray-400 dark:text-zinc-500">결제와 ROAS 전체는 위 채널·캠페인별 성과 표, 세트 몫은 마지막 클릭 기준</span>
+        캠페인별 세트 <span className="text-xs font-normal text-gray-400 dark:text-zinc-500">결제와 ROAS 전체는 위 광고 판정 표, 세트 몫은 마지막 클릭 기준</span>
       </h3>
       <div className="mt-2 overflow-x-auto">
         <table className="w-full whitespace-nowrap text-[13px]">

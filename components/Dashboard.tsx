@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { breakAtUnderscore } from "@/lib/campaign-name";
-import ChannelSection, { type ChannelsData } from "./ChannelSection";
+import type { ChannelsData } from "./dash/ui";
+import RevenueSources from "./dash/RevenueSources";
+import AdVerdict from "./dash/AdVerdict";
 import SetSales from "./SetSales";
 import { TXT } from "./dash/ui";
 import KpiCards from "./dash/KpiCards";
@@ -174,9 +175,18 @@ function useIncludeMarketing(): [boolean, () => void] {
 
 const NUM = new Intl.NumberFormat("ko-KR");
 
-// 오늘 = KST 날짜 (API 의 from/until 이 KST 라 서버(UTC)·브라우저 시간대와 무관하게 맞춤. ChannelSection kstToday 와 같은 식)
+// 오늘 = KST 날짜 (API 의 from/until 이 KST 라 서버(UTC)·브라우저 시간대와 무관하게 맞춤.)
 function todayStr(): string {
   return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
+// 응답 시각(ISO)의 KST 날짜
+function kstDateOf(iso: string | undefined): string {
+  const t = iso ? Date.parse(iso) : NaN;
+  return new Date((Number.isFinite(t) ? t : Date.now()) + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
+// 하루짜리 기간이 응답 시점의 KST 오늘이면 진행 중
+function isLiveRange(r: { from: string; until: string }, fetchedAt: string | undefined): boolean {
+  return r.from === r.until && r.until >= kstDateOf(fetchedAt);
 }
 function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -204,8 +214,8 @@ function fmtPct(n: number | null, digits = 1): string {
 // ────────────────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  // 기본 = 최근 7일 (광고 판정 기간과 같게. 전체 기간은 채널 성과가 9/3부터라 기간이 어긋남). 두 날짜는 같은 '오늘'에서.
-  const [range, setRange] = useState(() => presetRange("week", todayStr()));
+  // 기본 = 오늘 (진행 중인 날은 광고 판정이 판정을 보류). 두 날짜는 같은 '오늘'에서.
+  const [range, setRange] = useState(() => presetRange("today", todayStr()));
   const { from, until } = range;
   const setFrom = (f: string) => setRange((r) => ({ ...r, from: f }));
   const setUntil = (u: string) => setRange((r) => ({ ...r, until: u }));
@@ -215,8 +225,8 @@ export default function Dashboard() {
   const [campaigns, setCampaigns] = useState<CampaignsData | null>(null);
   const [prevDaily, setPrevDaily] = useState<{ days: number; off: DailyRow[]; on: DailyRow[] } | null>(null);
   const [channels, setChannels] = useState<ChannelsData | null>(null);
-  const [channelsLoading, setChannelsLoading] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [channelsLoading, setChannelsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [theme, toggleTheme] = useTheme();
   const [includeMarketing, toggleMarketing] = useIncludeMarketing();
@@ -252,7 +262,10 @@ export default function Dashboard() {
   }, [channels, includeMarketing]);
   // 오늘 보기일 때만 어제 같은 시각 매출을 따로 불러온다 (결제매출 카드 비교용).
   // live 는 화면에 떠 있는 summary 의 기간 기준 (기간을 바꾼 직후 옛 숫자에 오늘 문구가 붙지 않게).
-  const live = Boolean(summary) && summary!.range.from === todayStr() && summary!.range.until === todayStr();
+  // 판단 기준은 응답이 만들어진 시각의 KST 날짜 (탭을 밤새 열어 둬도 어제 일부만 모인 숫자를 완료로 보지 않게).
+  const live = Boolean(summary) && isLiveRange(summary!.range, summary!.fetchedAt);
+  // 방금 고른 기간과 화면의 summary 기간이 다르면 불러오는 동안 옛 숫자를 흐리게 보인다.
+  const stale = Boolean(summary) && (summary!.range.from !== from || summary!.range.until !== until);
   const [yesterdaySameTime, setYesterdaySameTime] = useState<number | null>(null);
   useEffect(() => {
     if (!live) { setYesterdaySameTime(null); return; }
@@ -327,7 +340,7 @@ export default function Dashboard() {
       if (sRes.ok) setSummary(sJson);
       else setError(sJson?.detail || sJson?.error || `summary HTTP ${sRes.status}`);
       if (dRes.ok) setDaily(dJson);
-      if (cRes.ok) setCampaigns(cJson);
+      setCampaigns(cRes.ok ? cJson : null);
       if (prevRes.ok && Array.isArray(prevJson?.daily)) {
         setPrevDaily({ days: len, off: prevJson.daily, on: prevJson.dailyWithMarketing ?? prevJson.daily });
       } else {
@@ -386,6 +399,7 @@ export default function Dashboard() {
         daily={dailyView?.daily ?? []}
         prev={prevTotals}
         live={live}
+        stale={stale}
         yesterdaySameTime={yesterdaySameTime}
         prevDays={prevTotals?.days ?? 0}
       />
@@ -396,18 +410,28 @@ export default function Dashboard() {
         adBreakdown={summaryView?.adBreakdown}
         includeMarketing={includeMarketing}
         live={live}
+        stale={stale}
         theme={theme}
       />
 
-      {/* ── 1-1. 채널 성과 (매출 유입 경로 · 메타 ROAS) ─────────────── */}
-      <ChannelSection data={channelsView} loading={channelsLoading} theme={theme} />
+      {/* ── 1-1. 광고 판정 ─────────────── */}
+      <AdVerdict
+        data={channelsView}
+        campaigns={campaigns}
+        loading={channelsLoading}
+        live={Boolean(channelsView?.cur) && isLiveRange(channelsView!.cur!.range, channelsView!.fetchedAt)}
+        asOf={channelsView?.fetchedAt ?? summary?.fetchedAt ?? null}
+        theme={theme}
+      />
+
+      <RevenueSources data={channelsView} loading={channelsLoading} theme={theme} />
 
       {/* ── 1-2. 세트 판매 (채널 성과와 같은 결제·귀속 데이터) ───────────────── */}
       {channelsView?.cur?.sets && (
         <div className="mt-4">
           <CollapsibleCard
             title="세트 판매"
-            subtitle={`세트 ${channelsView!.cur!.sets.n.toLocaleString("ko-KR")}건 · 전체 고객 기준`}
+            subtitle={`세트 ${channelsView!.cur!.sets.n.toLocaleString("ko-KR")}건`}
             defaultOpen
           >
             <SetSales sets={channelsView!.cur!.sets} theme={theme} />
@@ -419,14 +443,6 @@ export default function Dashboard() {
       <div className="mt-8 space-y-4">
         <CollapsibleCard title="일별 손익 표" defaultOpen={false}>
           <DailyTable rows={dailyView?.daily ?? []} loading={loading} />
-        </CollapsibleCard>
-
-        <CollapsibleCard
-          title="Meta 캠페인 운영 지표 (광고관리자 기준)"
-          subtitle={campaigns ? `${campaigns.campaigns.length}개 캠페인 · 소재·전달 진단용 · 증감 판정은 위 채널·캠페인별 성과` : undefined}
-          defaultOpen={false}
-        >
-          <CampaignTable campaigns={campaigns?.campaigns ?? []} loading={loading} error={campaigns?.metaError ?? null} />
         </CollapsibleCard>
       </div>
 
@@ -647,7 +663,7 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
             const belowBep = r.roas !== null && r.roas < r.breakEvenRoas && r.adSpend > 0;
             const isToday = r.date === today;
             return (
-              <tr key={r.date} className={`${belowBep ? "bg-rose-50/40 dark:bg-rose-950/20" : ""} ${isToday ? "text-gray-400 dark:text-zinc-500" : "text-gray-700 dark:text-zinc-300"}`}>
+              <tr key={r.date} className={`${belowBep && !isToday ? "bg-rose-50/40 dark:bg-rose-950/20" : ""} ${isToday ? "text-gray-400 dark:text-zinc-500" : "text-gray-700 dark:text-zinc-300"}`}>
                 <td className="py-2 pr-3 font-mono text-xs">
                   {r.date}{isToday && <span className="ml-1 text-[10px]">(당일)</span>}
                 </td>
@@ -658,7 +674,7 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
                   {fmtKrw(r.contributionProfit)}
                 </td>
                 <td className="py-2 pr-3 text-right tabular-nums">{fmtPct(r.contributionMargin)}</td>
-                <td className={`py-2 text-right tabular-nums ${belowBep ? "text-rose-600 font-medium dark:text-rose-400" : ""}`}>
+                <td className={`py-2 text-right tabular-nums ${belowBep && !isToday ? "text-rose-600 font-medium dark:text-rose-400" : ""}`}>
                   {fmtPct(r.roas, 0)}
                 </td>
               </tr>
@@ -667,72 +683,6 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
         </tbody>
       </table>
       <p className="mt-3 text-[11px] text-gray-400 dark:text-zinc-500">※ MER(전체 매출 ÷ 광고비)이 손익분기 미만인 행은 옅은 적색 배경 · 당일(미완료) 은 회색</p>
-    </div>
-  );
-}
-
-function formatBudget(c: CampaignRow): string {
-  // 예산 표시 규칙:
-  //   daily_budget 우선 (운영자가 일 단위로 조정하는 게 일반적).
-  //   둘 다 null/0 이면 "-".
-  if (c.dailyBudget && c.dailyBudget > 0) return `${fmtKrw(c.dailyBudget)} / 일`;
-  if (c.lifetimeBudget && c.lifetimeBudget > 0) return `${fmtKrw(c.lifetimeBudget)} (총액)`;
-  return "—";
-}
-
-function CampaignTable({
-  campaigns, loading, error,
-}: { campaigns: CampaignRow[]; loading: boolean; error: string | null }) {
-  if (error) return <p className="py-8 text-center text-sm text-amber-700 dark:text-amber-400">{error}</p>;
-  if (!loading && campaigns.length === 0) {
-    return <p className="py-8 text-center text-sm text-gray-400 dark:text-zinc-500">광고 캠페인 데이터가 없습니다.</p>;
-  }
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-left text-xs text-gray-500 dark:text-zinc-400">
-            <th className="py-2 pr-4 font-medium">캠페인</th>
-            <th className="py-2 pr-3 text-right font-medium">결과</th>
-            <th className="py-2 pr-3 text-right font-medium">CPA</th>
-            <th className="py-2 pr-3 text-right font-medium">예산</th>
-            <th className="py-2 pr-3 text-right font-medium">지출금액</th>
-            <th className="py-2 pr-3 text-right font-medium">메타 ROAS</th>
-            <th className="py-2 pr-3 text-right font-medium">CTR</th>
-            <th className="py-2 pr-3 text-right font-medium">빈도</th>
-            <th className="py-2 pr-3 text-right font-medium">CVR</th>
-            <th className="py-2 text-right font-medium">CPM</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100 dark:divide-zinc-800">
-          {campaigns.map((c) => (
-            <tr key={c.campaignId} className="text-gray-700 dark:text-zinc-300">
-              <td className="py-2 pr-4">
-                {/* 폭 고정: 모바일에서 다른 열에 밀려 110px 로 눌리면 캠페인 구분 부분(끝)이 잘림. 표는 가로 스크롤 */}
-                <div className="w-[260px] break-words break-keep line-clamp-2" title={c.campaignName}>{breakAtUnderscore(c.campaignName)}</div>
-                <div className="text-[10px] text-gray-400 dark:text-zinc-500">{c.campaignId}</div>
-              </td>
-              <td className="py-2 pr-3 text-right tabular-nums">
-                {c.purchases > 0 ? NUM.format(c.purchases) : "—"}
-              </td>
-              <td className="py-2 pr-3 text-right tabular-nums">
-                {c.cpa !== null ? fmtKrw(c.cpa) : "—"}
-              </td>
-              <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">{formatBudget(c)}</td>
-              <td className="py-2 pr-3 text-right tabular-nums">{fmtKrw(c.spend)}</td>
-              <td className="py-2 pr-3 text-right tabular-nums">{fmtPct(c.roas, 1)}</td>
-              <td className="py-2 pr-3 text-right tabular-nums">{fmtPct(c.ctr, 1)}</td>
-              <td className="py-2 pr-3 text-right tabular-nums">
-                {c.frequency !== null ? c.frequency.toFixed(1) : "—"}
-              </td>
-              <td className="py-2 pr-3 text-right tabular-nums">{fmtPct(c.cvr, 1)}</td>
-              <td className="py-2 text-right tabular-nums">
-                {c.cpm !== null ? fmtKrw(c.cpm) : "—"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }
