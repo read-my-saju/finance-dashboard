@@ -142,9 +142,9 @@ export default function Trend30({ rows, theme }: { rows: TrendRow[]; theme: "lig
           </div>
 
           {/* 오른쪽 끝 마지막 값 */}
-          <div aria-hidden="true" className="relative w-14 flex-none text-xs font-semibold">
-            <span className="absolute left-0" style={{ top: revLy - 8, color: c.revenue }}>{fmtMan(last.netRevenue)}</span>
-            <span className="absolute left-0" style={{ top: adLy - 8, color: c.ad }}>{fmtMan(last.adSpend)}</span>
+          <div aria-hidden="true" className="relative w-16 flex-none text-xs font-semibold">
+            <span className="absolute left-0 whitespace-nowrap" style={{ top: revLy - 8, color: c.revenue }}>{fmtMan(last.netRevenue)}</span>
+            <span className="absolute left-0 whitespace-nowrap" style={{ top: adLy - 8, color: c.ad }}>{fmtMan(last.adSpend)}</span>
           </div>
         </div>
         <table className="sr-only">
