@@ -17,12 +17,12 @@ function pct(cur: number, base: number): number | null {
   return base === 0 ? null : ((cur - base) / Math.abs(base)) * 100;
 }
 
-function Delta({ v, tone, suffix }: { v: number | null; tone: "gray" | "color"; suffix: string }) {
+function Delta({ v, tone, suffix, unit = "%" }: { v: number | null; tone: "gray" | "color"; suffix: string; unit?: string }) {
   if (v === null) return <span className={TXT.dim}>—</span>;
   const cls = tone === "gray" ? TXT.sub : v >= 0 ? GOOD : BAD;
   return (
     <span>
-      <span className={`font-semibold tabular-nums ${cls}`}>{v >= 0 ? "▲" : "▼"} {Math.abs(v).toFixed(1)}%</span>
+      <span className={`font-semibold tabular-nums ${cls}`}>{v >= 0 ? "▲" : "▼"} {Math.abs(v).toFixed(1)}{unit}</span>
       <span className={TXT.dim}> {suffix}</span>
     </span>
   );
@@ -67,7 +67,7 @@ export default function KpiCards({ totals, prev, adBreakdown, daily, live, stale
     const ad = rows.reduce((a, d) => a + d.adSpend, 0);
     const prevAd = prev.adSpend;
     if (ad <= 0 || prevAd <= 0) return null;
-    return pct(rows.reduce((a, d) => a + d.netRevenue, 0) / ad, prev.netRevenue / prevAd);
+    return (rows.reduce((a, d) => a + d.netRevenue, 0) / ad - prev.netRevenue / prevAd) * 100; // %p 차이
   })();
 
   const revenue = t?.netRevenue ?? 0;
@@ -95,7 +95,7 @@ export default function KpiCards({ totals, prev, adBreakdown, daily, live, stale
       />
       <Card
         label="MER" value={t?.roas == null ? "—" : `${t.roas.toFixed(1)}%`}
-        compare={live ? <span className={TXT.dim}>진행 중이라 판정 안 함</span> : <Delta v={merDelta} tone="color" suffix={vsText} />}
+        compare={live ? <span className={TXT.dim}>진행 중이라 판정 안 함</span> : <Delta v={merDelta} tone="color" suffix={vsText} unit="%p" />}
         sub="전체 매출 ÷ 광고비"
       />
       <Card

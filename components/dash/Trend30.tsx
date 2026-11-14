@@ -13,9 +13,9 @@ const GAP = 12; // 두 차트 사이 간격(px)
 const GRID = "border-[#EEF1F5] dark:border-[#1C2130]";
 const md = (iso: string) => `${Number(iso.slice(5, 7))}/${Number(iso.slice(8, 10))}`;
 
-// 1, 2, 5 x 10^k 중 max를 3칸 안에 담는 눈금 간격
+// 1, 2, 5 x 10^k 중 max를 4칸 안에 담는 눈금 간격
 function niceStep(max: number): number {
-  const raw = Math.max(max, 1) / 3;
+  const raw = Math.max(max, 1) / 4;
   const p = 10 ** Math.floor(Math.log10(raw));
   return ([1, 2, 5, 10].find((m) => m * p >= raw) ?? 10) * p;
 }
@@ -33,8 +33,10 @@ export default function Trend30({ rows, theme }: { rows: TrendRow[]; theme: "lig
   const n = rows.length;
   if (n === 0) return null;
 
-  const step = niceStep(Math.max(30000, ...rows.map((r) => Math.max(r.netRevenue, r.adSpend))));
-  const yMax = step * 3;
+  const top = Math.max(30000, ...rows.map((r) => Math.max(r.netRevenue, r.adSpend)));
+  const step = niceStep(top);
+  const ticks = Array.from({ length: Math.ceil(top / step) + 1 }, (_, k) => k);
+  const yMax = step * (ticks.length - 1);
   const px = (v: number) => H_TOP - (Math.max(v, 0) / yMax) * H_TOP;
   const xPct = (i: number) => ((i + 0.5) / n) * 100;
   const line = (get: (r: TrendRow) => number) =>
@@ -74,7 +76,7 @@ export default function Trend30({ rows, theme }: { rows: TrendRow[]; theme: "lig
         <div className="flex gap-2" aria-hidden="true">
           {/* 왼쪽 눈금 */}
           <div aria-hidden="true" className={`relative w-11 flex-none text-[11px] ${TXT.dim}`}>
-            {[0, 1, 2, 3].map((k) => (
+            {ticks.map((k) => (
               <span key={k} className="absolute right-0" style={{ top: px(k * step) - 7 }}>{k ? fmtMan(k * step) : "0"}</span>
             ))}
             <span className="absolute right-0" style={{ top: H_TOP + GAP + (zeroY / 100) * H_BAR - 7 }}>0</span>
@@ -83,7 +85,7 @@ export default function Trend30({ rows, theme }: { rows: TrendRow[]; theme: "lig
           {/* 차트 */}
           <div className="relative min-w-0 flex-1" onMouseLeave={() => setHover(null)}>
             <div className="relative" style={{ height: H_TOP }}>
-              {[0, 1, 2, 3].map((k) => (
+              {ticks.map((k) => (
                 <div key={k} className={`absolute inset-x-0 border-t ${GRID}`} style={{ top: Math.min(px(k * step), H_TOP - 1) }} />
               ))}
               <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 h-full w-full overflow-visible" aria-hidden="true">
@@ -142,9 +144,13 @@ export default function Trend30({ rows, theme }: { rows: TrendRow[]; theme: "lig
           </div>
 
           {/* 오른쪽 끝 마지막 값 */}
-          <div aria-hidden="true" className="relative w-16 flex-none text-xs font-semibold">
-            <span className="absolute left-0 whitespace-nowrap" style={{ top: revLy - 8, color: c.revenue }}>{fmtMan(last.netRevenue)}</span>
-            <span className="absolute left-0 whitespace-nowrap" style={{ top: adLy - 8, color: c.ad }}>{fmtMan(last.adSpend)}</span>
+          <div aria-hidden="true" className="relative w-20 flex-none text-xs font-semibold">
+            <span className={`absolute left-0 flex items-center gap-1 whitespace-nowrap ${TXT.main}`} style={{ top: revLy - 8 }}>
+              <i className="h-0.5 w-2 flex-none rounded-full" style={{ background: c.revenue }} />{fmtMan(last.netRevenue)}
+            </span>
+            <span className={`absolute left-0 flex items-center gap-1 whitespace-nowrap ${TXT.main}`} style={{ top: adLy - 8 }}>
+              <i className="h-0.5 w-2 flex-none rounded-full" style={{ background: c.ad }} />{fmtMan(last.adSpend)}
+            </span>
           </div>
         </div>
         <table className="sr-only">
