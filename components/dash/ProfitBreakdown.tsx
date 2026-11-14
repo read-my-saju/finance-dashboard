@@ -6,9 +6,9 @@ type Ad = { seeding: number; branding: number };
 const BAD = "text-[#dc2626] dark:text-[#f07070]";
 const won = (n: number) => `${n < 0 ? "−" : ""}${Math.abs(n).toFixed(1)}원`;
 
-export default function ProfitBreakdown({ totals, totalsWithMarketing, adBreakdown, includeMarketing, live, theme }: {
+export default function ProfitBreakdown({ totals, totalsWithMarketing, adBreakdown, includeMarketing, live, stale, theme }: {
   totals?: BreakdownInput; totalsWithMarketing?: BreakdownInput; adBreakdown?: Ad;
-  includeMarketing: boolean; live: boolean; theme: "light" | "dark";
+  includeMarketing: boolean; live: boolean; stale?: boolean; theme: "light" | "dark";
 }) {
   if (!totals) return null;
   const { rows, segs, profitPer100 } = profitBreakdown(totals);
@@ -23,9 +23,9 @@ export default function ProfitBreakdown({ totals, totalsWithMarketing, adBreakdo
   }
 
   return (
-    <section aria-labelledby="s-wf" className={`${CARD} mt-4 min-w-0`}>
+    <section aria-labelledby="s-wf" className={`${CARD} mt-4 min-w-0 transition-opacity ${stale ? "opacity-60" : ""}`}>
       <SectionHead title="매출에서 이익까지" />
-      <p id="s-wf" className={`text-xl font-bold tracking-tight ${profitPer100 < 0 ? BAD : TXT.main}`}>
+      <p id="s-wf" className={`text-xl font-bold tracking-tight ${profitPer100 < 0 && !live ? BAD : TXT.main}`}>
         {totals.netRevenue === 0 ? `아직 결제가 없습니다${live ? " (진행 중)" : ""}` : profitHeadline(profitPer100, live)}
       </p>
 
@@ -49,7 +49,7 @@ export default function ProfitBreakdown({ totals, totalsWithMarketing, adBreakdo
         </div>
         {rows.map((r) => {
           const strong = r.kind !== "minus";
-          const loss = r.kind === "final" && r.amount < 0;
+          const loss = r.kind === "final" && r.amount < 0 && !live;
           const numCls = loss ? BAD : strong ? TXT.main : TXT.sub;
           return (
             <div

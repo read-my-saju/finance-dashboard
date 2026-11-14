@@ -145,7 +145,7 @@ function ByCampaignTable({ sets, theme }: { sets: SetSalesData; theme: Theme }) 
   return (
     <section className="min-w-0">
       <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
-        캠페인별 세트 <span className="text-xs font-normal text-gray-400 dark:text-zinc-500">결제와 ROAS 전체는 위 채널·캠페인별 성과 표, 세트 몫은 마지막 클릭 기준</span>
+        캠페인별 세트 <span className="text-xs font-normal text-gray-400 dark:text-zinc-500">결제와 ROAS 전체는 위 광고 판정 표, 세트 몫은 마지막 클릭 기준</span>
       </h3>
       <div className="mt-2 overflow-x-auto">
         <table className="w-full whitespace-nowrap text-[13px]">

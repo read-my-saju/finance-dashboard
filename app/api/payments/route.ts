@@ -7,8 +7,10 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 // 5 분 in-memory cache. force=1 query 로 우회 가능 (새로고침 버튼).
-type CacheEntry = { key: string; expiresAt: number; payload: any };
-let cache: CacheEntry | null = null;
+// 오늘 호출과 어제 호출이 서로 밀어내지 않게 여러 칸(오래된 것부터 버림).
+type CacheEntry = { expiresAt: number; payload: any };
+const cache = new Map<string, CacheEntry>();
+const MAX_ENTRIES = 8;
 const TTL_MS = 5 * 60 * 1000;
 
 export async function GET(req: NextRequest) {
@@ -24,8 +26,9 @@ export async function GET(req: NextRequest) {
 
   const cacheKey = `${from}|${until}`;
   const now = Date.now();
-  if (!force && !debug && cache && cache.key === cacheKey && cache.expiresAt > now) {
-    return NextResponse.json({ ...cache.payload, cached: true });
+  const hit = cache.get(cacheKey);
+  if (!force && !debug && hit && hit.expiresAt > now) {
+    return NextResponse.json({ ...hit.payload, cached: true });
   }
 
   // PortOne(과거) + Toss(2026-06-19~) 합산. 한쪽 실패해도 다른 쪽은 보여준다.
@@ -46,7 +49,9 @@ export async function GET(req: NextRequest) {
   if (debug) {
     payload._debug = { portone: portoneDebug, toss: tossDebug };
   } else {
-    cache = { key: cacheKey, expiresAt: now + TTL_MS, payload };
+    cache.delete(cacheKey);
+    cache.set(cacheKey, { expiresAt: now + TTL_MS, payload });
+    while (cache.size > MAX_ENTRIES) cache.delete(cache.keys().next().value as string);
   }
 
   return NextResponse.json({ ...payload, cached: false });

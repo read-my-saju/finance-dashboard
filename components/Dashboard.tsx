@@ -179,6 +179,15 @@ const NUM = new Intl.NumberFormat("ko-KR");
 function todayStr(): string {
   return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 }
+// 응답 시각(ISO)의 KST 날짜
+function kstDateOf(iso: string | undefined): string {
+  const t = iso ? Date.parse(iso) : NaN;
+  return new Date((Number.isFinite(t) ? t : Date.now()) + 9 * 3600 * 1000).toISOString().slice(0, 10);
+}
+// 하루짜리 기간이 응답 시점의 KST 오늘이면 진행 중
+function isLiveRange(r: { from: string; until: string }, fetchedAt: string | undefined): boolean {
+  return r.from === r.until && r.until >= kstDateOf(fetchedAt);
+}
 function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -216,8 +225,8 @@ export default function Dashboard() {
   const [campaigns, setCampaigns] = useState<CampaignsData | null>(null);
   const [prevDaily, setPrevDaily] = useState<{ days: number; off: DailyRow[]; on: DailyRow[] } | null>(null);
   const [channels, setChannels] = useState<ChannelsData | null>(null);
-  const [channelsLoading, setChannelsLoading] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [channelsLoading, setChannelsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [theme, toggleTheme] = useTheme();
   const [includeMarketing, toggleMarketing] = useIncludeMarketing();
@@ -253,7 +262,10 @@ export default function Dashboard() {
   }, [channels, includeMarketing]);
   // 오늘 보기일 때만 어제 같은 시각 매출을 따로 불러온다 (결제매출 카드 비교용).
   // live 는 화면에 떠 있는 summary 의 기간 기준 (기간을 바꾼 직후 옛 숫자에 오늘 문구가 붙지 않게).
-  const live = Boolean(summary) && summary!.range.from === todayStr() && summary!.range.until === todayStr();
+  // 판단 기준은 응답이 만들어진 시각의 KST 날짜 (탭을 밤새 열어 둬도 어제 일부만 모인 숫자를 완료로 보지 않게).
+  const live = Boolean(summary) && isLiveRange(summary!.range, summary!.fetchedAt);
+  // 방금 고른 기간과 화면의 summary 기간이 다르면 불러오는 동안 옛 숫자를 흐리게 보인다.
+  const stale = Boolean(summary) && (summary!.range.from !== from || summary!.range.until !== until);
   const [yesterdaySameTime, setYesterdaySameTime] = useState<number | null>(null);
   useEffect(() => {
     if (!live) { setYesterdaySameTime(null); return; }
@@ -328,7 +340,7 @@ export default function Dashboard() {
       if (sRes.ok) setSummary(sJson);
       else setError(sJson?.detail || sJson?.error || `summary HTTP ${sRes.status}`);
       if (dRes.ok) setDaily(dJson);
-      if (cRes.ok) setCampaigns(cJson);
+      setCampaigns(cRes.ok ? cJson : null);
       if (prevRes.ok && Array.isArray(prevJson?.daily)) {
         setPrevDaily({ days: len, off: prevJson.daily, on: prevJson.dailyWithMarketing ?? prevJson.daily });
       } else {
@@ -387,6 +399,7 @@ export default function Dashboard() {
         daily={dailyView?.daily ?? []}
         prev={prevTotals}
         live={live}
+        stale={stale}
         yesterdaySameTime={yesterdaySameTime}
         prevDays={prevTotals?.days ?? 0}
       />
@@ -397,6 +410,7 @@ export default function Dashboard() {
         adBreakdown={summaryView?.adBreakdown}
         includeMarketing={includeMarketing}
         live={live}
+        stale={stale}
         theme={theme}
       />
 
@@ -405,8 +419,8 @@ export default function Dashboard() {
         data={channelsView}
         campaigns={campaigns}
         loading={channelsLoading}
-        live={Boolean(channelsView?.cur) && channelsView!.cur!.range.from === todayStr() && channelsView!.cur!.range.until === todayStr()}
-        asOf={channelsView?.attributionAsOf ?? null}
+        live={Boolean(channelsView?.cur) && isLiveRange(channelsView!.cur!.range, channelsView!.fetchedAt)}
+        asOf={channelsView?.fetchedAt ?? summary?.fetchedAt ?? null}
         theme={theme}
       />
 
@@ -417,7 +431,7 @@ export default function Dashboard() {
         <div className="mt-4">
           <CollapsibleCard
             title="세트 판매"
-            subtitle={`세트 ${channelsView!.cur!.sets.n.toLocaleString("ko-KR")}건 · 전체 고객 기준`}
+            subtitle={`세트 ${channelsView!.cur!.sets.n.toLocaleString("ko-KR")}건`}
             defaultOpen
           >
             <SetSales sets={channelsView!.cur!.sets} theme={theme} />
@@ -649,7 +663,7 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
             const belowBep = r.roas !== null && r.roas < r.breakEvenRoas && r.adSpend > 0;
             const isToday = r.date === today;
             return (
-              <tr key={r.date} className={`${belowBep ? "bg-rose-50/40 dark:bg-rose-950/20" : ""} ${isToday ? "text-gray-400 dark:text-zinc-500" : "text-gray-700 dark:text-zinc-300"}`}>
+              <tr key={r.date} className={`${belowBep && !isToday ? "bg-rose-50/40 dark:bg-rose-950/20" : ""} ${isToday ? "text-gray-400 dark:text-zinc-500" : "text-gray-700 dark:text-zinc-300"}`}>
                 <td className="py-2 pr-3 font-mono text-xs">
                   {r.date}{isToday && <span className="ml-1 text-[10px]">(당일)</span>}
                 </td>
@@ -660,7 +674,7 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
                   {fmtKrw(r.contributionProfit)}
                 </td>
                 <td className="py-2 pr-3 text-right tabular-nums">{fmtPct(r.contributionMargin)}</td>
-                <td className={`py-2 text-right tabular-nums ${belowBep ? "text-rose-600 font-medium dark:text-rose-400" : ""}`}>
+                <td className={`py-2 text-right tabular-nums ${belowBep && !isToday ? "text-rose-600 font-medium dark:text-rose-400" : ""}`}>
                   {fmtPct(r.roas, 0)}
                 </td>
               </tr>

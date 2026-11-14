@@ -46,9 +46,9 @@ function adSub(ab: Ad | undefined): string {
   return parts.join(", ");
 }
 
-export default function KpiCards({ totals, prev, adBreakdown, daily, live, yesterdaySameTime, prevDays }: {
+export default function KpiCards({ totals, prev, adBreakdown, daily, live, stale, yesterdaySameTime, prevDays }: {
   totals?: Totals; prev: Prev | null; adBreakdown?: Ad; daily: KpiDailyRow[];
-  live: boolean; yesterdaySameTime: number | null; prevDays: number;
+  live: boolean; stale?: boolean; yesterdaySameTime: number | null; prevDays: number;
 }) {
   const t = totals;
   const vsText = `이전 ${prevDays}일 대비`;
@@ -71,6 +71,7 @@ export default function KpiCards({ totals, prev, adBreakdown, daily, live, yeste
   })();
 
   const revenue = t?.netRevenue ?? 0;
+  const mm = (n: number | undefined) => (t ? fmtMan(n ?? 0) : "—");
   const revenueCompare = live
     ? yesterdaySameTime ? <Delta v={pct(revenue, yesterdaySameTime)} tone="color" suffix={`어제 이 시각 ${fmtMan(yesterdaySameTime)}`} /> : <span className={TXT.dim}>—</span>
     : <Delta v={delta((d) => d.netRevenue, (p) => p.netRevenue)} tone="color" suffix={vsText} />;
@@ -78,18 +79,18 @@ export default function KpiCards({ totals, prev, adBreakdown, daily, live, yeste
   const feeRate = t && t.netRevenue > 0 ? (t.pgFee / t.netRevenue) * 100 : null;
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-6">
+    <div className={`grid grid-cols-2 gap-3 transition-opacity sm:grid-cols-3 sm:gap-4 xl:grid-cols-6 ${stale ? "opacity-60" : ""}`}>
       <Card
-        label="결제매출" value={fmtMan(revenue)} compare={revenueCompare}
-        sub={`부가세 제외 ${fmtMan(t?.revenueExVat ?? 0)}, 결제 ${(t?.reportCount ?? 0).toLocaleString("en-US")}건`}
+        label="결제매출" value={mm(revenue)} compare={revenueCompare}
+        sub={t ? `부가세 제외 ${fmtMan(t.revenueExVat)}, 결제 ${t.reportCount.toLocaleString("en-US")}건` : "—"}
       />
-      <Card label="광고비" value={fmtMan(t?.adSpend ?? 0)} compare={ago(delta((d) => d.adSpend, (p) => p.adSpend), "gray")} sub={adSub(adBreakdown)} />
+      <Card label="광고비" value={mm(t?.adSpend)} compare={ago(delta((d) => d.adSpend, (p) => p.adSpend), "gray")} sub={adSub(adBreakdown)} />
       <Card
-        label="결제수수료" value={fmtMan(t?.pgFee ?? 0)} compare={ago(delta((d) => d.pgFee, (p) => p.pgFee), "gray")}
+        label="결제수수료" value={mm(t?.pgFee)} compare={ago(delta((d) => d.pgFee, (p) => p.pgFee), "gray")}
         sub={feeRate === null ? "매출의 —" : `매출의 ${feeRate.toFixed(1)}%`}
       />
       <Card
-        label="리포트 원가" value={fmtMan(t?.reportCost ?? 0)} compare={ago(delta((d) => d.reportCost, (p) => p.reportCost), "gray")}
+        label="리포트 원가" value={mm(t?.reportCost)} compare={ago(delta((d) => d.reportCost, (p) => p.reportCost), "gray")}
         sub={`${perReport === null ? "결제 1건당 —" : `결제 1건당 ${perReport.toLocaleString("en-US")}원`}${adBreakdown?.server ? ", 서버비 포함" : ""}`}
       />
       <Card
@@ -98,7 +99,7 @@ export default function KpiCards({ totals, prev, adBreakdown, daily, live, yeste
         sub="전체 매출 ÷ 광고비"
       />
       <Card
-        label="공헌이익" value={fmtMan(t?.contributionProfit ?? 0)} compare={ago(delta((d) => d.contributionProfit, (p) => p.contributionProfit), "color")}
+        label="공헌이익" value={mm(t?.contributionProfit)} compare={ago(delta((d) => d.contributionProfit, (p) => p.contributionProfit), "color")}
         sub={`마진 ${t?.contributionMargin == null ? "—" : `${t.contributionMargin.toFixed(1)}%`}`} accent
       />
     </div>

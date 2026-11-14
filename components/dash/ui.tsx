@@ -77,6 +77,7 @@ export type ChannelsData = {
   range: { from: string; until: string };
   prevRange: { from: string; until: string } | null;
   clampedFrom: string | null;
+  fetchedAt?: string;
   attributionAsOf?: string | null;
   attributionStale?: boolean;
   cur: ChannelPeriod | null;

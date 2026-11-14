@@ -12,7 +12,6 @@ type CampaignsLike = { campaigns: CampaignOps[]; metaError?: string | null } | n
 const pct = (n: number | null | undefined, d = 1) => (n == null || !Number.isFinite(n) ? "—" : `${n.toFixed(d)}%`);
 const day = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))}`;
 const kst = (iso: string) => new Date(Date.parse(iso) + 9 * 3600 * 1000).toISOString();
-const clock = (iso: string) => kst(iso).slice(11, 16);
 const clockWithDay = (iso: string) => {
   const k = kst(iso);
   const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
@@ -94,7 +93,7 @@ export default function AdVerdict({ data, campaigns, loading, live, asOf, theme 
               <div className="mt-1 flex flex-wrap items-baseline gap-2.5">
                 <span className={`text-5xl font-bold leading-none tracking-tight tabular-nums sm:text-[56px] ${TXT.main}`}>{pct(roas)}</span>
                 {live ? (
-                  <span className={`text-xs ${TXT.dim}`}>{asOf ? `${clock(asOf)} 기준, ` : ""}하루 동안 계속 바뀝니다</span>
+                  <span className={`text-xs ${TXT.dim}`}>{asOf ? `${clockWithDay(asOf)} 기준, ` : ""}하루 동안 계속 바뀝니다</span>
                 ) : prevDiff != null && prev?.pixelRoas != null && Math.abs(prevDiff) >= 0.05 ? (
                   <>
                     <span className={`text-[13px] font-semibold tabular-nums ${prevDiff > 0 ? "text-[#15803d] dark:text-[#3fb950]" : "text-[#dc2626] dark:text-[#f07070]"}`}>
@@ -163,7 +162,7 @@ export default function AdVerdict({ data, campaigns, loading, live, asOf, theme 
                       {live ? <StatusChip tone="live">진행 중</StatusChip>
                         : cv && cd != null ? <StatusChip tone={cv}>{gap(cd)} {ROW_COPY[cv]}</StatusChip> : <span className={TXT.dim}>—</span>}
                     </div>
-                    <span className={`text-right font-semibold tabular-nums ${c.profit < 0 ? "text-[#dc2626] dark:text-[#f07070]" : ""}`}>{money(c.profit)}</span>
+                    <span className={`text-right font-semibold tabular-nums ${c.profit < 0 && !live ? "text-[#dc2626] dark:text-[#f07070]" : ""}`}>{money(c.profit)}</span>
                     <span className={`text-right tabular-nums ${TXT.sub}`}>{pct(c.lastClickRoas)}</span>
                     <span className={`text-right tabular-nums ${TXT.sub}`}>{c.ctr == null ? "—" : pct(c.ctr, 2)}</span>
                     <span className={`text-right tabular-nums ${TXT.sub}`}>{c.cpm == null ? "—" : `₩${Math.round(c.cpm).toLocaleString("ko-KR")}`}</span>
