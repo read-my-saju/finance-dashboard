@@ -278,9 +278,6 @@ const NUM = new Intl.NumberFormat("ko-KR");
 function todayStr(): string {
   return new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 }
-function daysAgo(n: number): string {
-  return addDays(todayStr(), -n);
-}
 function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
@@ -649,7 +646,7 @@ function mdWd(iso: string): string {
 function periodDescription(from: string, until: string, kstTime: string): string {
   const today = todayStr();
   if (from === today && until === today) {
-    return `${mdWd(today)} ${kstTime} 기준, 진행 중. 비교는 어제 같은 시각`;
+    return `${mdWd(today)}${kstTime ? ` ${kstTime}` : ""} 기준, 진행 중. 비교는 어제 같은 시각`;
   }
   // 오늘이 끼면 오늘은 미완료라 완료 일수에서 뺀다
   const n = diffDays(from, until) - (until >= today && from <= today ? 1 : 0);
@@ -675,7 +672,7 @@ function Header({
   return (
     <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className={`text-lg font-extrabold tracking-tight sm:text-xl ${TXT.main}`}>결제와 광고 손익 대시보드</h1>
+        <h1 className={`text-lg font-extrabold tracking-tight sm:text-xl ${TXT.main}`}>푸리 재무</h1>
         <p className={`mt-0.5 text-sm ${TXT.sub}`}>{periodDescription(from, until, kstTime)}</p>
       </div>
       <div className={`flex flex-wrap items-center gap-2 text-xs ${TXT.dim}`}>
