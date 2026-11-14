@@ -33,7 +33,7 @@ export default function Trend30({ rows, theme }: { rows: TrendRow[]; theme: "lig
   const n = rows.length;
   if (n === 0) return null;
 
-  const step = niceStep(Math.max(...rows.map((r) => Math.max(r.netRevenue, r.adSpend))));
+  const step = niceStep(Math.max(30000, ...rows.map((r) => Math.max(r.netRevenue, r.adSpend))));
   const yMax = step * 3;
   const px = (v: number) => H_TOP - (Math.max(v, 0) / yMax) * H_TOP;
   const xPct = (i: number) => ((i + 0.5) / n) * 100;
@@ -71,7 +71,7 @@ export default function Trend30({ rows, theme }: { rows: TrendRow[]; theme: "lig
             </div>
           }
         />
-        <div className="flex gap-2" role="img" aria-label="최근 30일 결제매출, 광고비, 공헌이익 일별 추이">
+        <div className="flex gap-2" aria-hidden="true">
           {/* 왼쪽 눈금 */}
           <div aria-hidden="true" className={`relative w-11 flex-none text-[11px] ${TXT.dim}`}>
             {[0, 1, 2, 3].map((k) => (
@@ -142,11 +142,23 @@ export default function Trend30({ rows, theme }: { rows: TrendRow[]; theme: "lig
           </div>
 
           {/* 오른쪽 끝 마지막 값 */}
-          <div aria-hidden="true" className="relative w-12 flex-none text-xs font-semibold">
+          <div aria-hidden="true" className="relative w-14 flex-none text-xs font-semibold">
             <span className="absolute left-0" style={{ top: revLy - 8, color: c.revenue }}>{fmtMan(last.netRevenue)}</span>
             <span className="absolute left-0" style={{ top: adLy - 8, color: c.ad }}>{fmtMan(last.adSpend)}</span>
           </div>
         </div>
+        <table className="sr-only">
+          <caption>최근 30일 일별 결제매출, 광고비, 공헌이익</caption>
+          <thead><tr><th>날짜</th><th>결제매출</th><th>광고비</th><th>공헌이익</th><th>MER</th></tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.date}>
+                <td>{md(r.date)}</td><td>{fmtMan(r.netRevenue)}</td><td>{fmtMan(r.adSpend)}</td><td>{fmtMan(r.contributionProfit)}</td>
+                <td>{r.adSpend > 0 ? `${Math.round((r.netRevenue / r.adSpend) * 100)}%` : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </section>
   );
@@ -158,7 +170,7 @@ export function Trend30Placeholder({ loading }: { loading: boolean }) {
       <div className={CARD}>
         <SectionHead title="최근 30일 추이" />
         {loading
-          ? <div className="h-72 animate-pulse rounded-xl bg-[#EEF1F5] dark:bg-[#1C2130]" aria-label="추이 불러오는 중" />
+          ? <div role="status" className="h-72 animate-pulse rounded-xl bg-[#EEF1F5] dark:bg-[#1C2130]" aria-label="추이 불러오는 중" />
           : <p className={`text-sm ${TXT.dim}`}>추이를 불러오지 못했습니다</p>}
       </div>
     </section>

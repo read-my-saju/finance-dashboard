@@ -331,9 +331,9 @@ export default function Dashboard() {
       .then(async (res) => {
         const json = await res.json();
         if (reqIdRef.current !== myId) return;
-        setTrend(res.ok && Array.isArray(json?.daily) ? { off: json.daily, on: json.dailyWithMarketing ?? json.daily } : null);
+        if (res.ok && Array.isArray(json?.daily)) setTrend({ off: json.daily, on: json.dailyWithMarketing ?? json.daily });
       })
-      .catch(() => { if (reqIdRef.current === myId) setTrend(null); })
+      .catch(() => {})
       .finally(() => { if (reqIdRef.current === myId) setTrendLoading(false); });
 
     try {
