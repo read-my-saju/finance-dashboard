@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChannelsData } from "./dash/ui";
 import RevenueSources from "./dash/RevenueSources";
+import Trend30, { Trend30Placeholder } from "./dash/Trend30";
 import AdVerdict from "./dash/AdVerdict";
 import SetSales from "./SetSales";
 import { TXT } from "./dash/ui";
@@ -227,6 +228,8 @@ export default function Dashboard() {
   const [channels, setChannels] = useState<ChannelsData | null>(null);
   const [channelsLoading, setChannelsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [trend, setTrend] = useState<{ off: DailyRow[]; on: DailyRow[] } | null>(null);
+  const [trendLoading, setTrendLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [theme, toggleTheme] = useTheme();
   const [includeMarketing, toggleMarketing] = useIncludeMarketing();
@@ -360,6 +363,30 @@ export default function Dashboard() {
     return () => { reqIdRef.current++; };
   }, [load]);
 
+  // 최근 30일 추이는 고른 기간과 무관하므로 기간 변경에 다시 받지 않고, 처음 열 때와 새로고침 때만 받는다.
+  // 기간 요청의 stale 가드와 따로 두어 기간을 바꿔도 추이 응답이 버려지지 않는다.
+  const trendReqRef = useRef(0);
+  const loadTrend = useCallback((force = false) => {
+    const myId = ++trendReqRef.current;
+    const tr = presetRange("month30", todayStr());
+    const tq = new URLSearchParams({ from: tr.from, until: tr.until });
+    if (force) tq.set("force", "1");
+    setTrendLoading(true);
+    fetch(`/api/dashboard/daily?${tq}`, { cache: "no-store" })
+      .then(async (res) => {
+        const json = await res.json();
+        if (trendReqRef.current !== myId) return;
+        if (res.ok && Array.isArray(json?.daily)) setTrend({ off: json.daily, on: json.dailyWithMarketing ?? json.daily });
+      })
+      .catch(() => {})
+      .finally(() => { if (trendReqRef.current === myId) setTrendLoading(false); });
+  }, []);
+
+  useEffect(() => {
+    loadTrend(false);
+    return () => { trendReqRef.current++; };
+  }, [loadTrend]);
+
   const metaError = summaryView?.metaError || dailyView?.metaError || campaigns?.metaError || null;
 
   return (
@@ -378,7 +405,7 @@ export default function Dashboard() {
         from={from} until={until}
         setFrom={setFrom} setUntil={setUntil}
         loading={loading}
-        onRefresh={() => load(true)}
+        onRefresh={() => { load(true); loadTrend(true); }}
         onLogout={async () => {
           await fetch("/api/auth", { method: "DELETE" });
           location.href = "/login";
@@ -404,16 +431,6 @@ export default function Dashboard() {
         prevDays={prevTotals?.days ?? 0}
       />
 
-      <ProfitBreakdown
-        totals={summaryView?.totals}
-        totalsWithMarketing={summary?.totalsWithMarketing}
-        adBreakdown={summaryView?.adBreakdown}
-        includeMarketing={includeMarketing}
-        live={live}
-        stale={stale}
-        theme={theme}
-      />
-
       {/* ── 1-1. 광고 판정 ─────────────── */}
       <AdVerdict
         data={channelsView}
@@ -424,7 +441,21 @@ export default function Dashboard() {
         theme={theme}
       />
 
+      <ProfitBreakdown
+        totals={summaryView?.totals}
+        totalsWithMarketing={summary?.totalsWithMarketing}
+        adBreakdown={summaryView?.adBreakdown}
+        includeMarketing={includeMarketing}
+        live={live}
+        stale={stale}
+        theme={theme}
+      />
+
       <RevenueSources data={channelsView} loading={channelsLoading} theme={theme} />
+
+      {trend
+        ? <Trend30 rows={includeMarketing ? trend.on : trend.off} theme={theme} />
+        : <Trend30Placeholder loading={trendLoading} />}
 
       {/* ── 1-2. 세트 판매 (채널 성과와 같은 결제·귀속 데이터) ───────────────── */}
       {channelsView?.cur?.sets && (
@@ -432,7 +463,7 @@ export default function Dashboard() {
           <CollapsibleCard
             title="세트 판매"
             subtitle={`세트 ${channelsView!.cur!.sets.n.toLocaleString("ko-KR")}건`}
-            defaultOpen
+            defaultOpen={false}
           >
             <SetSales sets={channelsView!.cur!.sets} theme={theme} />
           </CollapsibleCard>
@@ -447,7 +478,7 @@ export default function Dashboard() {
       </div>
 
       <p className="mt-8 text-xs text-gray-400 dark:text-zinc-500">
-        데이터 출처: PortOne V2 API · Meta Marketing API · Google Play 인앱결제는 본 대시보드에 포함되지 않음
+        데이터 출처: 결제 토스페이먼츠(6/18 이전 PortOne), 광고 Meta Marketing API, 유입 Mixpanel. Google Play 인앱결제는 포함하지 않습니다.
       </p>
     </div>
   );
@@ -591,17 +622,17 @@ function CollapsibleCard({
   title, subtitle, defaultOpen, children,
 }: { title: string; subtitle?: string; defaultOpen?: boolean; children: React.ReactNode }) {
   return (
-    <details open={defaultOpen} className="group rounded-xl border border-gray-200 bg-white transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700">
-      <summary className="flex cursor-pointer items-center justify-between px-5 py-4 text-sm font-semibold text-gray-900 dark:text-zinc-100">
+    <details open={defaultOpen} className="group rounded-2xl border border-[#E3E8EE] bg-white dark:border-[#232836] dark:bg-[#12151C]">
+      <summary className="flex cursor-pointer items-center justify-between px-5 py-4 text-sm font-semibold text-[#0D1B2A] dark:text-[#ECEEF2]">
         <div className="flex items-center gap-2">
           <span>{title}</span>
-          {subtitle && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-normal text-gray-500 dark:bg-zinc-800 dark:text-zinc-400">{subtitle}</span>}
+          {subtitle && <span className="rounded-full bg-[#EEF1F5] px-2 py-0.5 text-xs font-normal text-[#4B5565] dark:bg-[#1C2130] dark:text-[#A3AAB8]">{subtitle}</span>}
         </div>
-        <svg className="h-4 w-4 text-gray-400 transition group-open:rotate-180 dark:text-zinc-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg className="h-4 w-4 text-[#6B7280] transition group-open:rotate-180 dark:text-[#8A92A3]" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </summary>
-      <div className="border-t border-gray-100 px-5 py-4 dark:border-zinc-800">{children}</div>
+      <div className="border-t border-[#EEF1F5] px-5 py-4 dark:border-[#1C2130]">{children}</div>
     </details>
   );
 }

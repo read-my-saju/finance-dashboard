@@ -23,7 +23,7 @@ export default function ProfitBreakdown({ totals, totalsWithMarketing, adBreakdo
   }
 
   return (
-    <section aria-labelledby="s-wf" className={`${CARD} mt-4 min-w-0 transition-opacity ${stale ? "opacity-60" : ""}`}>
+    <section aria-labelledby="s-wf" className={`${CARD} mt-6 min-w-0 transition-opacity ${stale ? "opacity-60" : ""}`}>
       <SectionHead title="매출에서 이익까지" />
       <p id="s-wf" className={`text-xl font-bold tracking-tight ${profitPer100 < 0 && !live ? BAD : TXT.main}`}>
         {totals.netRevenue === 0 ? `아직 결제가 없습니다${live ? " (진행 중)" : ""}` : profitHeadline(profitPer100, live)}
