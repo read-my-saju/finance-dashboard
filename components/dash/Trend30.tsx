@@ -79,7 +79,9 @@ export default function Trend30({ rows, theme }: { rows: TrendRow[]; theme: "lig
             {ticks.map((k) => (
               <span key={k} className="absolute right-0" style={{ top: px(k * step) - 7 }}>{k ? fmtMan(k * step) : "0"}</span>
             ))}
+            {pMax > 0 && <span className="absolute right-0" style={{ top: H_TOP + GAP - 7 }}>{fmtMan(pMax)}</span>}
             <span className="absolute right-0" style={{ top: H_TOP + GAP + (zeroY / 100) * H_BAR - 7 }}>0</span>
+            {pMin < 0 && <span className="absolute right-0" style={{ top: H_TOP + GAP + H_BAR - 7 }}>{fmtMan(pMin)}</span>}
           </div>
 
           {/* 차트 */}
