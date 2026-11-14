@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChannelsData } from "./dash/ui";
 import RevenueSources from "./dash/RevenueSources";
+import Trend30, { Trend30Placeholder } from "./dash/Trend30";
 import AdVerdict from "./dash/AdVerdict";
 import SetSales from "./SetSales";
 import { TXT } from "./dash/ui";
@@ -227,6 +228,8 @@ export default function Dashboard() {
   const [channels, setChannels] = useState<ChannelsData | null>(null);
   const [channelsLoading, setChannelsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [trend, setTrend] = useState<{ off: DailyRow[]; on: DailyRow[] } | null>(null);
+  const [trendLoading, setTrendLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [theme, toggleTheme] = useTheme();
   const [includeMarketing, toggleMarketing] = useIncludeMarketing();
@@ -318,6 +321,20 @@ export default function Dashboard() {
       .finally(() => {
         if (reqIdRef.current === myId) setChannelsLoading(false);
       });
+
+    // 최근 30일 추이는 고른 기간과 무관하게 어제까지 30일을 따로 받는다.
+    const tr = presetRange("month30", todayStr());
+    const tq = new URLSearchParams({ from: tr.from, until: tr.until });
+    if (force) tq.set("force", "1");
+    setTrendLoading(true);
+    fetch(`/api/dashboard/daily?${tq}`, { cache: "no-store" })
+      .then(async (res) => {
+        const json = await res.json();
+        if (reqIdRef.current !== myId) return;
+        setTrend(res.ok && Array.isArray(json?.daily) ? { off: json.daily, on: json.dailyWithMarketing ?? json.daily } : null);
+      })
+      .catch(() => { if (reqIdRef.current === myId) setTrend(null); })
+      .finally(() => { if (reqIdRef.current === myId) setTrendLoading(false); });
 
     try {
       const [pRes, sRes, dRes, cRes, prevRes] = await Promise.all([
@@ -425,6 +442,10 @@ export default function Dashboard() {
       />
 
       <RevenueSources data={channelsView} loading={channelsLoading} theme={theme} />
+
+      {trend
+        ? <Trend30 rows={includeMarketing ? trend.on : trend.off} theme={theme} />
+        : <Trend30Placeholder loading={trendLoading} />}
 
       {/* ── 1-2. 세트 판매 (채널 성과와 같은 결제·귀속 데이터) ───────────────── */}
       {channelsView?.cur?.sets && (
