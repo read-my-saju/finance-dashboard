@@ -6,7 +6,8 @@ import { breakAtUnderscore } from "@/lib/campaign-name";
 import ChannelSection, { type ChannelsData } from "./ChannelSection";
 import SetSales from "./SetSales";
 import { TXT } from "./dash/ui";
-import { presetOf, presetRange, type PresetKey } from "@/lib/dashboard-view";
+import KpiCards from "./dash/KpiCards";
+import { presetOf, presetRange, sameTimeRevenue, type PresetKey } from "@/lib/dashboard-view";
 import {
   Bar,
   BarChart,
@@ -194,7 +195,6 @@ type ChartPalette = {
   profit: string;
   today: string;
   bep: string;
-  spark: string;
   hourly: string;
   costSegments: [string, string, string, string]; // 광고비 · VAT · PG수수료 · 리포트원가
   tooltipBg: string;
@@ -213,7 +213,6 @@ const LIGHT_PAL: ChartPalette = {
   profit: "#0f766e",
   today: "#9ca3af",
   bep: "#fb7185",
-  spark: "#FF6F0F",
   hourly: "#FF6F0F",
   costSegments: ["#f97316", "#a78bfa", "#fbbf24", "#94a3b8"],
   tooltipBg: "#ffffff",
@@ -232,7 +231,6 @@ const DARK_PAL: ChartPalette = {
   profit: "#2dd4bf",
   today: "#71717a",
   bep: "#fb7185",
-  spark: "#FF8534",
   hourly: "#FF8534",
   costSegments: ["#fb923c", "#c4b5fd", "#fcd34d", "#a1a1aa"],
   tooltipBg: "#18181b",
@@ -399,6 +397,24 @@ export default function Dashboard() {
       c && c.merWithMarketing !== undefined ? { ...c, mer: c.merWithMarketing, adSpend: c.adSpendWithMarketing ?? c.adSpend } : c;
     return { ...channels, cur: pick(channels.cur), prev: pick(channels.prev) };
   }, [channels, includeMarketing]);
+  // 오늘 보기일 때만 어제 같은 시각 매출을 따로 불러온다 (결제매출 카드 비교용).
+  const live = from === until && until === todayStr();
+  const [yesterdaySameTime, setYesterdaySameTime] = useState<number | null>(null);
+  useEffect(() => {
+    setYesterdaySameTime(null);
+    if (!live) return;
+    let stale = false;
+    const y = presetRange("yesterday", todayStr()).from;
+    fetch(`/api/payments?from=${y}&until=${y}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (stale || !Array.isArray(j?.hourly)) return;
+        const kst = new Date(Date.now() + 9 * 3600 * 1000);
+        setYesterdaySameTime(sameTimeRevenue(j.hourly, kst.getUTCHours(), kst.getUTCMinutes()));
+      })
+      .catch(() => {});
+    return () => { stale = true; };
+  }, [live]);
   const monthly = useMemo(() => bucketMonthly(dailyView?.daily ?? []), [dailyView]);
 
   // 동시 진행 fetch 들 중 가장 최신 호출의 응답만 화면에 반영하기 위한 request id.
@@ -515,15 +531,14 @@ export default function Dashboard() {
       )}
 
       {/* ── 1. 상단 KPI 스트립 ─────────────────────────────────────────── */}
-      <KpiStrip
+      <KpiCards
         totals={summaryView?.totals}
         adBreakdown={summaryView?.adBreakdown}
-        includeMarketing={includeMarketing}
-        onToggleMarketing={toggleMarketing}
-        sourceNetRevenue={sourceNetRevenue}
         daily={dailyView?.daily ?? []}
         prev={prevTotals}
-        pal={pal}
+        live={live}
+        yesterdaySameTime={yesterdaySameTime}
+        prevDays={prevTotals?.days ?? 0}
       />
 
       {/* ── 1-1. 채널 성과 (매출 유입 경로 · 메타 ROAS) ─────────────── */}
@@ -705,21 +720,6 @@ const PRESETS: [PresetKey, string][] = [
   ["thisMonth", "이번 달"], ["lastMonth", "지난 달"], ["all", "전체"],
 ];
 
-/** 광고비 카드 아래 내역: 메타·네이버, 시딩·브랜딩은 포함/별도를 구분해 적는다. */
-function adSpendSubText(ab: AdBreakdown | undefined): string | undefined {
-  if (!ab) return undefined;
-  const parts = [`메타 ${fmtKrw(ab.meta)}`];
-  if (ab.naver > 0) parts.push(`네이버 ${fmtKrw(ab.naver)}`);
-  const mk = ab.seeding + ab.branding;
-  if (mk <= 0) return parts.join(" · ");
-  if (ab.marketingIncluded) {
-    if (ab.seeding > 0) parts.push(`시딩 ${fmtKrw(ab.seeding)}`);
-    if (ab.branding > 0) parts.push(`브랜딩 ${fmtKrw(ab.branding)}`);
-    return parts.join(" · ");
-  }
-  return `${parts.join(" · ")} (시딩·브랜딩 ${fmtKrw(mk)} 별도)`;
-}
-
 function FilterBar({
   from, until, setFrom, setUntil, loading, onRefresh, onLogout,
 }: {
@@ -816,106 +816,6 @@ function CollapsibleCard({
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// 1. KPI Strip — 6 cards
-// ────────────────────────────────────────────────────────────────────────────
-
-function KpiStrip({
-  totals, adBreakdown, includeMarketing, onToggleMarketing, sourceNetRevenue, daily, prev, pal,
-}: {
-  totals?: ProfitTotals;
-  adBreakdown?: AdBreakdown;
-  includeMarketing: boolean;
-  onToggleMarketing: () => void;
-  sourceNetRevenue: number;
-  daily: DailyRow[];
-  prev: PrevTotals | null;
-  pal: ChartPalette;
-}) {
-  const finishedDaily = useMemo(() => {
-    const today = todayStr();
-    return daily.filter((d) => d.date < today);
-  }, [daily]);
-
-  // 증감 = 직전 동기간(같은 길이의 바로 앞 구간) 대비 일평균 비교.
-  // 당일(미완료)은 현재 구간 합계에서 제외하고, 완료된 일수 기준 평균으로 맞춘다.
-  function delta(getCur: (d: DailyRow) => number, getPrev: (p: PrevTotals) => number): number | null {
-    if (!prev || prev.days <= 0 || finishedDaily.length === 0) return null;
-    const curSum = finishedDaily.reduce((a, d) => a + getCur(d), 0);
-    const curAvg = curSum / finishedDaily.length;
-    const prevAvg = getPrev(prev) / prev.days;
-    return pctChange(prevAvg, curAvg);
-  }
-
-  const netDelta = delta((d) => d.netRevenue, (p) => p.netRevenue);
-  const adDelta = delta((d) => d.adSpend, (p) => p.adSpend);
-  const pgDelta = delta((d) => d.pgFee, (p) => p.pgFee);
-  const reportDelta = delta((d) => d.reportCost, (p) => p.reportCost);
-  const profitDelta = delta((d) => d.contributionProfit, (p) => p.contributionProfit);
-
-  // VAT 제외 매출 (첫 카드 서브표기용) — 결제매출 × 10/11 동등.
-  const revenueExVat = sourceNetRevenue - sourceNetRevenue / 11;
-
-  return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-      <KpiCard
-        label="VAT 포함 결제매출"
-        value={sourceNetRevenue}
-        delta={netDelta}
-        sparkData={finishedDaily.map((d) => d.netRevenue)}
-        subText={`VAT 제외 ${fmtKrw(revenueExVat)}`}
-        pal={pal}
-      />
-      <KpiCard
-        label="광고비"
-        value={totals?.adSpend ?? 0}
-        delta={adDelta}
-        deltaInverse
-        sparkData={finishedDaily.map((d) => d.adSpend)}
-        subText={adSpendSubText(adBreakdown)}
-        pal={pal}
-      />
-      <KpiCard
-        label="결제수수료 (PG)"
-        value={totals?.pgFee ?? 0}
-        delta={pgDelta}
-        deltaInverse
-        sparkData={finishedDaily.map((d) => d.pgFee)}
-        pal={pal}
-      />
-      <KpiCard
-        label="리포트·서버 원가"
-        value={totals?.reportCost ?? 0}
-        delta={reportDelta}
-        deltaInverse
-        sparkData={finishedDaily.map((d) => d.reportCost)}
-        subText={totals ? `판매 ${NUM.format(totals.reportCount)}건 기준${adBreakdown?.server ? ` · 서버 ${fmtKrw(adBreakdown.server)} 포함` : ""}` : undefined}
-        pal={pal}
-      />
-      <RoasKpiCard totals={totals} />
-      <ProfitKpiCard totals={totals} delta={profitDelta} />
-    </div>
-  );
-}
-
-function DeltaBadge({ delta, deltaInverse }: { delta: number | null; deltaInverse?: boolean }) {
-  const positive = delta !== null && delta >= 0;
-  const goodColor = deltaInverse ? !positive : positive;
-  const pillCls = delta === null
-    ? "bg-gray-100 text-gray-400 dark:bg-zinc-800 dark:text-zinc-500"
-    : goodColor
-      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
-      : "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400";
-  return (
-    <div className="flex items-center gap-1.5" title="직전 동기간(같은 길이의 바로 앞 구간) 일평균 대비">
-      <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${pillCls}`}>
-        {delta === null ? "—" : `${positive ? "▲" : "▼"} ${Math.abs(delta).toFixed(1)}%`}
-      </span>
-      <span className="text-[10px] font-normal text-gray-400 dark:text-zinc-500">vs 이전 기간</span>
-    </div>
-  );
-}
-
 /**
  * 광고비 카드 안의 '시딩·브랜딩' 스위치. 켜면 시딩·브랜딩 비용(그 달 일수로 나눔)이 광고비에 들어가고
  * MER·공헌이익·일별 차트·채널 성과 MER 도 같이 바뀐다. 끄면 메타 + 네이버 광고비만 (매일 광고 효율용).
@@ -937,101 +837,6 @@ function MarketingSwitch({ on, onToggle }: { on: boolean; onToggle: () => void }
       </span>
       시딩·브랜딩
     </button>
-  );
-}
-
-function KpiCard({
-  label, value, delta, deltaInverse, sparkData, subText, action, pal,
-}: {
-  label: string;
-  value: number;
-  delta: number | null;
-  deltaInverse?: boolean;        // 광고비/수수료처럼 "줄어드는 게 좋은" 지표는 색 반전
-  sparkData: number[];
-  subText?: string;
-  action?: React.ReactNode;      // 라벨 오른쪽 작은 버튼 (광고비 카드의 시딩·브랜딩 스위치)
-  pal: ChartPalette;
-}) {
-  const sparkPoints = sparkData.map((v, i) => ({ x: i, y: v }));
-
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700">
-      <div className="flex items-start justify-between gap-2">
-        <div className="text-xs font-medium text-gray-500 dark:text-zinc-400">{label}</div>
-        {action}
-      </div>
-      <div className="mt-1.5 text-2xl font-bold tabular-nums tracking-tight text-gray-900 dark:text-zinc-100">
-        {fmtKrw(value)}
-      </div>
-      {subText && (
-        <div className="mt-0.5 text-[11px] text-gray-400 dark:text-zinc-500">{subText}</div>
-      )}
-      <div className="mt-2.5 flex items-center justify-between">
-        <DeltaBadge delta={delta} deltaInverse={deltaInverse} />
-        <div className="h-6 w-20">
-          {sparkData.length >= 2 && (
-            <ResponsiveContainer>
-              <LineChart data={sparkPoints}>
-                <Line type="monotone" dataKey="y" stroke={pal.spark} strokeWidth={1.5} dot={false} isAnimationActive={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function RoasKpiCard({ totals }: { totals?: ProfitTotals }) {
-  const roas = totals?.roas ?? null;
-  const bep = totals?.breakEvenRoas ?? 118;
-  const diff = roas !== null ? roas - bep : null;
-  const above = diff !== null && diff > 0;
-
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700">
-      <div className="text-xs font-medium text-gray-500 dark:text-zinc-400">MER (전체 매출 ÷ 광고비)</div>
-      <div className="mt-1.5 text-2xl font-bold tabular-nums tracking-tight text-gray-900 dark:text-zinc-100">
-        {fmtPct(roas, 1)}
-      </div>
-      <div className="mt-0.5 text-[11px] text-gray-400 dark:text-zinc-500">
-        전체 결제매출(VAT 포함) ÷ 광고비 · 손익분기 {fmtPct(bep, 1)} · 메타만 보려면 아래 채널 성과
-      </div>
-      <div className={`mt-2 text-xs font-medium ${
-        diff === null ? "text-gray-400 dark:text-zinc-500" : above ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-      }`}>
-        {`손익분기 ${bep.toFixed(0)}% 대비 ${diff !== null ? (diff >= 0 ? "+" : "") + diff.toFixed(1) + "%p" : "—"}`}
-      </div>
-    </div>
-  );
-}
-
-function ProfitKpiCard({ totals, delta }: { totals?: ProfitTotals; delta: number | null }) {
-  const cp = totals?.contributionProfit ?? 0;
-  const margin = totals?.contributionMargin ?? null;
-  const status = totals?.status ?? "—";
-  const positive = cp >= 0;
-
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 transition-colors hover:border-gray-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700">
-      <div className="text-xs font-medium text-gray-500 dark:text-zinc-400">공헌이익</div>
-      <div className={`mt-1.5 text-2xl font-bold tabular-nums tracking-tight ${positive ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-        {fmtKrw(cp)}
-      </div>
-      <div className="mt-0.5">
-        <DeltaBadge delta={delta} />
-      </div>
-      <div className="mt-2 flex items-center justify-between">
-        <span className="text-xs font-medium text-gray-500 dark:text-zinc-400">
-          마진 {fmtPct(margin, 1)}
-        </span>
-        <span className={`rounded-md border px-2 py-0.5 text-[10px] font-medium ${
-          status === "흑자" ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-400"
-          : status === "적자" ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-400"
-          : "border-gray-200 bg-gray-50 text-gray-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
-        }`}>{status}</span>
-      </div>
-    </div>
   );
 }
 
