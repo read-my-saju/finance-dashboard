@@ -25,11 +25,11 @@ export function SectionHead({ title, sub, right }: { title: string; sub?: string
 type Tone = Verdict | "live" | "muted";
 
 const TONE_CLASS: Record<Tone, string> = {
-  good: "text-[#15803d] dark:text-[#3fb950]",
-  warn: "text-[#b45309] dark:text-[#fab219]",
-  bad: "text-[#dc2626] dark:text-[#f07070]",
-  live: "text-[#4B5565] dark:text-[#A3AAB8]",
-  muted: "text-[#6B7280] dark:text-[#8A92A3]",
+  good: "border-[#15803d]/30 text-[#15803d] dark:border-[#3fb950]/30 dark:text-[#3fb950]",
+  warn: "border-[#b45309]/30 text-[#b45309] dark:border-[#fab219]/30 dark:text-[#fab219]",
+  bad: "border-[#dc2626]/30 text-[#dc2626] dark:border-[#f07070]/30 dark:text-[#f07070]",
+  live: "border-[#E3E8EE] text-[#4B5565] dark:border-[#232836] dark:text-[#A3AAB8]",
+  muted: "border-[#E3E8EE] text-[#6B7280] dark:border-[#232836] dark:text-[#8A92A3]",
 };
 
 const ICON: Record<Tone, ReactNode> = {
@@ -43,7 +43,7 @@ const ICON: Record<Tone, ReactNode> = {
 export function StatusChip({ tone, children }: { tone: Tone; children: ReactNode }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full border border-current/30 px-2 py-0.5 text-xs font-semibold ${TONE_CLASS[tone]}`}
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold ${TONE_CLASS[tone]}`}
     >
       {ICON[tone] && (
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
