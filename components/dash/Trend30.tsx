@@ -55,7 +55,7 @@ export default function Trend30({ rows, theme }: { rows: TrendRow[]; theme: "lig
   const plotH = H_TOP + GAP + H_BAR;
 
   const leg = (color: string, label: string, box = false) => (
-    <span className="inline-flex items-center gap-1.5">
+    <span className="inline-flex items-center gap-2">
       <span className={box ? "h-2.5 w-2.5 rounded-sm" : "h-0.5 w-4 rounded-full"} style={{ background: color }} />
       {label}
     </span>
@@ -68,14 +68,14 @@ export default function Trend30({ rows, theme }: { rows: TrendRow[]; theme: "lig
           title="최근 30일 추이"
           sub={`${md(rows[0].date)} – ${md(last.date)}, 어제까지`}
           right={
-            <div className={`flex flex-wrap gap-3.5 text-xs ${TXT.sub}`}>
+            <div className={`flex flex-wrap gap-4 text-xs ${TXT.sub}`}>
               {leg(c.revenue, "결제매출")}{leg(c.ad, "광고비")}{leg(c.profit, "공헌이익", true)}
             </div>
           }
         />
         <div className="flex gap-2" aria-hidden="true">
           {/* 왼쪽 눈금 */}
-          <div aria-hidden="true" className={`relative w-11 flex-none text-[11px] ${TXT.dim}`}>
+          <div aria-hidden="true" className={`relative w-12 flex-none text-xs ${TXT.dim}`}>
             {ticks.map((k) => (
               <span key={k} className="absolute right-0" style={{ top: px(k * step) - 7 }}>{k ? fmtMan(k * step) : "0"}</span>
             ))}
@@ -115,9 +115,9 @@ export default function Trend30({ rows, theme }: { rows: TrendRow[]; theme: "lig
               </svg>
             </div>
 
-            <div className={`relative mt-1 h-5 text-[11px] ${TXT.dim}`} aria-hidden="true">
+            <div className={`relative mt-1 h-5 text-xs ${TXT.dim}`} aria-hidden="true">
               {tickIdx.map((i) => (
-                <span key={i} className="absolute -translate-x-1/2 whitespace-nowrap" style={{ left: `${xPct(i)}%` }}>{md(rows[i].date)}</span>
+                <span key={i} className={`absolute -translate-x-1/2 whitespace-nowrap ${(n - 1 - i) % 10 === 0 ? "" : "hidden md:block"}`} style={{ left: `${xPct(i)}%` }}>{md(rows[i].date)}</span>
               ))}
             </div>
 

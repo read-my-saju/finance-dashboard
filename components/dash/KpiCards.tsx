@@ -23,18 +23,20 @@ function Delta({ v, tone, suffix, unit = "%" }: { v: number | null; tone: "gray"
   return (
     <span>
       <span className={`font-semibold tabular-nums ${cls}`}>{v >= 0 ? "▲" : "▼"} {Math.abs(v).toFixed(1)}{unit}</span>
-      <span className={TXT.dim}> {suffix}</span>
+      <span className={`hidden sm:inline ${TXT.dim}`}> {suffix}</span>
     </span>
   );
 }
 
-function Card({ label, value, compare, sub, accent }: { label: string; value: string; compare: React.ReactNode; sub: string; accent?: boolean }) {
+// 휴대폰 2열에서 카드마다 줄 구성을 같게: 이름, 큰 숫자, 비교, 보조(한 줄 말줄임) 4줄 고정. 카드 높이는 같은 행끼리 그리드가 맞춘다.
+function Card({ label, value, compare, sub, accent, footer }: { label: string; value: string; compare: React.ReactNode; sub: string; accent?: boolean; footer?: React.ReactNode }) {
   return (
     <div className={`${CARD} min-w-0 !p-4 ${accent ? "!border-[#15803d]/50 dark:!border-[#3fb950]/50" : ""}`}>
-      <div className={`text-xs font-medium ${TXT.sub}`}>{label}</div>
+      <div className={`text-[13px] font-medium leading-4 md:text-xs ${TXT.sub}`}>{label}</div>
       <div className={`mt-1 break-words text-2xl font-extrabold tabular-nums tracking-tight ${TXT.main}`}>{value}</div>
-      <div className="mt-2 text-xs">{compare}</div>
-      <div className={`mt-1 text-xs ${TXT.dim}`}>{sub}</div>
+      <div className="mt-2 truncate text-xs leading-4 md:overflow-visible md:whitespace-normal">{compare}</div>
+      <div title={sub} className={`mt-1 min-h-4 truncate text-xs leading-4 md:overflow-visible md:whitespace-normal ${TXT.dim}`}>{sub}</div>
+      {footer}
     </div>
   );
 }
@@ -46,9 +48,9 @@ function adSub(ab: Ad | undefined): string {
   return parts.join(", ");
 }
 
-export default function KpiCards({ totals, prev, adBreakdown, daily, live, stale, yesterdaySameTime, prevDays }: {
+export default function KpiCards({ totals, prev, adBreakdown, daily, live, stale, yesterdaySameTime, prevDays, marketingSwitch }: {
   totals?: Totals; prev: Prev | null; adBreakdown?: Ad; daily: KpiDailyRow[];
-  live: boolean; stale?: boolean; yesterdaySameTime: number | null; prevDays: number;
+  live: boolean; stale?: boolean; yesterdaySameTime: number | null; prevDays: number; marketingSwitch?: React.ReactNode;
 }) {
   const t = totals;
   const vsText = `이전 ${prevDays}일 대비`;
@@ -79,12 +81,12 @@ export default function KpiCards({ totals, prev, adBreakdown, daily, live, stale
   const feeRate = t && t.netRevenue > 0 ? (t.pgFee / t.netRevenue) * 100 : null;
 
   return (
-    <div className={`grid grid-cols-2 gap-3 transition-opacity sm:grid-cols-3 sm:gap-4 xl:grid-cols-6 ${stale ? "opacity-60" : ""}`}>
+    <div className={`grid grid-cols-2 gap-2 transition-opacity sm:grid-cols-3 sm:gap-4 xl:grid-cols-6 ${stale ? "opacity-60" : ""}`}>
       <Card
         label="결제매출" value={mm(revenue)} compare={revenueCompare}
         sub={t ? `부가세 제외 ${fmtMan(t.revenueExVat)}, 결제 ${t.reportCount.toLocaleString("en-US")}건` : "—"}
       />
-      <Card label="광고비" value={mm(t?.adSpend)} compare={ago(delta((d) => d.adSpend, (p) => p.adSpend), "gray")} sub={adSub(adBreakdown)} />
+      <Card label="광고비" value={mm(t?.adSpend)} compare={ago(delta((d) => d.adSpend, (p) => p.adSpend), "gray")} sub={adSub(adBreakdown)} footer={marketingSwitch} />
       <Card
         label="결제수수료" value={mm(t?.pgFee)} compare={ago(delta((d) => d.pgFee, (p) => p.pgFee), "gray")}
         sub={feeRate === null ? "매출의 —" : `매출의 ${feeRate.toFixed(1)}%`}

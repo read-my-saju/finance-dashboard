@@ -8,7 +8,6 @@ import AdVerdict from "./dash/AdVerdict";
 import SetSales from "./SetSales";
 import { TXT } from "./dash/ui";
 import KpiCards from "./dash/KpiCards";
-import ProfitBreakdown from "./dash/ProfitBreakdown";
 import { presetOf, presetRange, sameTimeRevenue, type PresetKey } from "@/lib/dashboard-view";
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -387,6 +386,12 @@ export default function Dashboard() {
     return () => { trendReqRef.current++; };
   }, [loadTrend]);
 
+  const refresh = () => { load(true); loadTrend(true); };
+  const logout = async () => {
+    await fetch("/api/auth", { method: "DELETE" });
+    location.href = "/login";
+  };
+
   const metaError = summaryView?.metaError || dailyView?.metaError || campaigns?.metaError || null;
 
   return (
@@ -397,19 +402,16 @@ export default function Dashboard() {
         theme={theme}
         onToggleTheme={toggleTheme}
         from={from} until={until}
-        includeMarketing={includeMarketing}
-        onToggleMarketing={toggleMarketing}
+        loading={loading}
+        onRefresh={refresh}
       />
 
       <FilterBar
         from={from} until={until}
         setFrom={setFrom} setUntil={setUntil}
         loading={loading}
-        onRefresh={() => { load(true); loadTrend(true); }}
-        onLogout={async () => {
-          await fetch("/api/auth", { method: "DELETE" });
-          location.href = "/login";
-        }}
+        onRefresh={refresh}
+        onLogout={logout}
       />
 
       {error && (
@@ -429,6 +431,7 @@ export default function Dashboard() {
         stale={stale}
         yesterdaySameTime={yesterdaySameTime}
         prevDays={prevTotals?.days ?? 0}
+        marketingSwitch={<MarketingSwitch on={includeMarketing} onToggle={toggleMarketing} />}
       />
 
       {/* ── 1-1. 광고 판정 ─────────────── */}
@@ -441,16 +444,6 @@ export default function Dashboard() {
         theme={theme}
       />
 
-      <ProfitBreakdown
-        totals={summaryView?.totals}
-        totalsWithMarketing={summary?.totalsWithMarketing}
-        adBreakdown={summaryView?.adBreakdown}
-        includeMarketing={includeMarketing}
-        live={live}
-        stale={stale}
-        theme={theme}
-      />
-
       <RevenueSources data={channelsView} loading={channelsLoading} theme={theme} />
 
       {trend
@@ -459,7 +452,7 @@ export default function Dashboard() {
 
       {/* ── 1-2. 세트 판매 (채널 성과와 같은 결제·귀속 데이터) ───────────────── */}
       {channelsView?.cur?.sets && (
-        <div className="mt-4">
+        <div className="mt-6">
           <CollapsibleCard
             title="세트 판매"
             subtitle={`세트 ${channelsView!.cur!.sets.n.toLocaleString("ko-KR")}건`}
@@ -471,15 +464,18 @@ export default function Dashboard() {
       )}
 
       {/* ── 4. 하단 상세 (접기 가능) ────────────────────────────────────── */}
-      <div className="mt-8 space-y-4">
+      <div className="mt-6 space-y-4 md:mt-8">
         <CollapsibleCard title="일별 손익 표" defaultOpen={false}>
           <DailyTable rows={dailyView?.daily ?? []} loading={loading} />
         </CollapsibleCard>
       </div>
 
-      <p className="mt-8 text-xs text-gray-400 dark:text-zinc-500">
-        데이터 출처: 결제 토스페이먼츠(6/18 이전 PortOne), 광고 Meta Marketing API, 유입 Mixpanel. Google Play 인앱결제는 포함하지 않습니다.
-      </p>
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-2 md:mt-8">
+        <p className="min-w-0 flex-1 text-xs text-gray-500 dark:text-zinc-400">
+          데이터 출처: 결제 토스페이먼츠(6/18 이전 PortOne), 광고 Meta Marketing API, 유입 Mixpanel. Google Play 인앱결제는 포함하지 않습니다.
+        </p>
+        <button type="button" onClick={logout} className={`-mr-2 flex min-h-11 shrink-0 items-center px-2 text-xs underline md:hidden ${TXT.dim}`}>로그아웃</button>
+      </div>
     </div>
   );
 }
@@ -506,13 +502,34 @@ function periodDescription(from: string, until: string, kstTime: string): string
   return `${span}, 완료된 ${n}일. 화살표는 이전 ${diffDays(from, until)}일 대비`;
 }
 
-const ctrlBtn = `flex min-h-10 items-center justify-center rounded-lg border border-[#E3E8EE] bg-white px-3 text-sm hover:bg-gray-50 dark:border-[#232836] dark:bg-[#12151C] dark:hover:bg-[#1A1F2A] ${TXT.sub}`;
+const ctrlBtn = `flex min-h-11 w-full items-center justify-center rounded-lg border border-[#E3E8EE] bg-white px-3 text-sm hover:bg-gray-50 md:min-h-10 md:w-auto dark:border-[#232836] dark:bg-[#12151C] dark:hover:bg-[#1A1F2A] ${TXT.sub}`;
+const iconBtn = `flex h-11 w-11 items-center justify-center rounded-lg border border-[#E3E8EE] bg-white hover:bg-gray-50 dark:border-[#232836] dark:bg-[#12151C] dark:hover:bg-[#1A1F2A] ${TXT.sub}`;
+
+function ThemeIcon({ theme, className }: { theme: Theme; className: string }) {
+  return theme === "dark" ? (
+    <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+    </svg>
+  ) : (
+    <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+    </svg>
+  );
+}
+
+function RefreshIcon({ spinning, className }: { spinning: boolean; className: string }) {
+  return (
+    <svg className={`${className} ${spinning ? "animate-spin" : ""}`} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" />
+    </svg>
+  );
+}
 
 function Header({
-  fetchedAt, cached, theme, onToggleTheme, from, until, includeMarketing, onToggleMarketing,
+  fetchedAt, cached, theme, onToggleTheme, from, until, loading, onRefresh,
 }: {
   fetchedAt?: string; cached?: boolean; theme: Theme; onToggleTheme: () => void;
-  from: string; until: string; includeMarketing: boolean; onToggleMarketing: () => void;
+  from: string; until: string; loading: boolean; onRefresh: () => void;
 }) {
   // 서버·브라우저 렌더 불일치를 피하려고 마운트 뒤에 KST 시각을 채움
   const [kstTime, setKstTime] = useState("");
@@ -522,31 +539,29 @@ function Header({
     const id = setInterval(tick, 30000);
     return () => clearInterval(id);
   }, []);
+  const themeLabel = theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환";
   return (
-    <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <h1 className={`text-lg font-extrabold tracking-tight sm:text-xl ${TXT.main}`}>푸리 재무</h1>
-        <p className={`mt-0.5 text-sm ${TXT.sub}`}>{periodDescription(from, until, kstTime)}</p>
+    <div className="mb-4 md:flex md:items-end md:justify-between md:gap-3">
+      <div className="min-w-0">
+        <div className="flex items-center justify-between gap-2">
+          <h1 className={`text-xl font-extrabold tracking-tight ${TXT.main}`}>푸리 재무</h1>
+          {/* 휴대폰: 새로고침과 테마 전환을 아이콘 버튼으로 (업데이트 시각은 아래 설명줄에 합침) */}
+          <div className="flex gap-2 md:hidden">
+            <button type="button" onClick={onRefresh} disabled={loading} aria-label={loading ? "불러오는 중" : "새로고침"} className={`${iconBtn} disabled:opacity-50`}>
+              <RefreshIcon spinning={loading} className="h-5 w-5" />
+            </button>
+            <button type="button" onClick={onToggleTheme} aria-label={themeLabel} className={iconBtn}>
+              <ThemeIcon theme={theme} className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+        <p className={`mt-1 text-[13px] md:text-sm ${TXT.sub}`}>{periodDescription(from, until, kstTime)}</p>
       </div>
-      <div className={`flex flex-wrap items-center gap-2 text-xs ${TXT.dim}`}>
+      <div className={`hidden flex-wrap items-center gap-2 text-xs md:flex ${TXT.dim}`}>
         {fetchedAt && <span>업데이트 {new Date(fetchedAt).toLocaleString("ko-KR")}</span>}
         {cached && <span className="rounded bg-gray-100 px-2 py-0.5 dark:bg-zinc-800">cached</span>}
-        <MarketingSwitch on={includeMarketing} onToggle={onToggleMarketing} />
-        <button
-          type="button"
-          onClick={onToggleTheme}
-          aria-label={theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환"}
-          className={`${ctrlBtn} w-10 px-0`}
-        >
-          {theme === "dark" ? (
-            <svg className="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-            </svg>
-          ) : (
-            <svg className="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-            </svg>
-          )}
+        <button type="button" onClick={onToggleTheme} aria-label={themeLabel} className={`${ctrlBtn} !w-10 px-0`}>
+          <ThemeIcon theme={theme} className="h-3.5 w-3.5" />
         </button>
       </div>
     </div>
@@ -567,9 +582,14 @@ function FilterBar({
 }) {
   const today = todayStr();
   const current = presetOf(from, until, today);
-  const dateBox = `flex min-h-10 items-center gap-2 rounded-lg border border-[#E3E8EE] bg-white px-2 text-xs dark:border-[#232836] dark:bg-[#12151C] ${TXT.dim}`;
+  // 휴대폰: '직접'을 누르면 날짜 입력이 펼쳐진다. 고른 기간이 프리셋이 아니어도 '직접'이 선택 표시.
+  const [customOpen, setCustomOpen] = useState(false);
+  const directOn = customOpen || current === null;
+  const dateBox = `flex min-h-11 min-w-0 flex-col justify-center gap-1 rounded-lg border border-[#E3E8EE] bg-white px-2 py-1 text-xs md:min-h-10 md:flex-row md:items-center md:gap-2 md:py-0 dark:border-[#232836] dark:bg-[#12151C] ${TXT.dim}`;
+  const dateInput = "min-w-0 flex-1 bg-transparent text-base md:text-xs outline-none dark:[color-scheme:dark]";
+  const selected = "!border-[#0D1B2A] !bg-[#0D1B2A] !text-white dark:!border-[#262C3B] dark:!bg-[#262C3B] dark:!text-[#ECEEF2]";
   return (
-    <div className="mb-6 flex flex-wrap items-center gap-2">
+    <div className="mb-6 grid grid-cols-4 gap-2 md:flex md:flex-wrap md:items-center">
       {PRESETS.map(([key, label]) => {
         const on = current === key;
         return (
@@ -577,31 +597,31 @@ function FilterBar({
             key={key}
             type="button"
             aria-pressed={on}
-            onClick={() => { const r = presetRange(key, today); setFrom(r.from); setUntil(r.until); }}
-            className={`${ctrlBtn} ${on ? "!border-[#0D1B2A] !bg-[#0D1B2A] !text-white dark:!border-[#262C3B] dark:!bg-[#262C3B] dark:!text-[#ECEEF2]" : ""}`}
+            onClick={() => { const r = presetRange(key, today); setFrom(r.from); setUntil(r.until); setCustomOpen(false); }}
+            className={`${ctrlBtn} ${on ? selected : ""}`}
           >
             {label}
           </button>
         );
       })}
-      <div className="grow" />
-      <div className={dateBox}>
-        <span>시작</span>
-        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="bg-transparent outline-none dark:[color-scheme:dark]" />
-      </div>
-      <div className={dateBox}>
-        <span>종료</span>
-        <input type="date" value={until} onChange={(e) => setUntil(e.target.value)} className="bg-transparent outline-none dark:[color-scheme:dark]" />
+      <button type="button" aria-expanded={directOn} aria-controls="custom-range" onClick={() => setCustomOpen((o) => !o)} className={`${ctrlBtn} md:hidden ${current === null ? selected : ""}`}>직접</button>
+      <div className="hidden grow md:block" />
+      <div id="custom-range" className={`col-span-4 grid-cols-2 gap-2 md:contents ${directOn ? "grid" : "hidden"}`}>
+        <label className={dateBox}>
+          <span>시작</span>
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={dateInput} />
+        </label>
+        <label className={dateBox}>
+          <span>종료</span>
+          <input type="date" value={until} onChange={(e) => setUntil(e.target.value)} className={dateInput} />
+        </label>
       </div>
       <button type="button" onClick={onRefresh} disabled={loading}
-        className="flex min-h-10 items-center gap-2 rounded-lg bg-portone px-4 text-sm font-medium text-white hover:bg-portone-600 disabled:opacity-50">
-        <svg className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" />
-        </svg>
+        className="hidden min-h-10 items-center gap-2 rounded-lg bg-portone px-4 text-sm font-medium text-white hover:bg-portone-600 disabled:opacity-50 md:flex">
+        <RefreshIcon spinning={loading} className="h-4 w-4" />
         {loading ? "불러오는 중…" : "새로고침"}
       </button>
-      <button type="button" onClick={onLogout}
-        className={`${ctrlBtn} !text-xs`}>로그아웃</button>
+      <button type="button" onClick={onLogout} className={`${ctrlBtn} hidden !text-xs md:flex`}>로그아웃</button>
     </div>
   );
 }
@@ -623,7 +643,7 @@ function CollapsibleCard({
 }: { title: string; subtitle?: string; defaultOpen?: boolean; children: React.ReactNode }) {
   return (
     <details open={defaultOpen} className="group rounded-2xl border border-[#E3E8EE] bg-white dark:border-[#232836] dark:bg-[#12151C]">
-      <summary className="flex cursor-pointer items-center justify-between px-5 py-4 text-sm font-semibold text-[#0D1B2A] dark:text-[#ECEEF2]">
+      <summary className="flex cursor-pointer items-center justify-between min-h-[52px] px-4 py-3 text-sm font-semibold md:px-5 md:py-4 text-[#0D1B2A] dark:text-[#ECEEF2]">
         <div className="flex items-center gap-2">
           <span>{title}</span>
           {subtitle && <span className="rounded-full bg-[#EEF1F5] px-2 py-0.5 text-xs font-normal text-[#4B5565] dark:bg-[#1C2130] dark:text-[#A3AAB8]">{subtitle}</span>}
@@ -632,13 +652,13 @@ function CollapsibleCard({
           <polyline points="6 9 12 15 18 9" />
         </svg>
       </summary>
-      <div className="border-t border-[#EEF1F5] px-5 py-4 dark:border-[#1C2130]">{children}</div>
+      <div className="border-t border-[#EEF1F5] px-4 py-4 md:px-5 dark:border-[#1C2130]">{children}</div>
     </details>
   );
 }
 
 /**
- * 머리줄의 '시딩과 브랜딩' 스위치. 켜면 시딩과 브랜딩 비용(그 달 일수로 나눔)이 광고비에 들어가고
+ * 광고비 카드 안의 '시딩, 브랜딩 포함' 스위치. 켜면 시딩과 브랜딩 비용(그 달 일수로 나눔)이 광고비에 들어가고
  * MER·공헌이익·일별 표·채널 성과 MER 도 같이 바뀐다. 끄면 메타 + 네이버 광고비만 (매일 광고 효율용).
  */
 function MarketingSwitch({ on, onToggle }: { on: boolean; onToggle: () => void }) {
@@ -649,14 +669,12 @@ function MarketingSwitch({ on, onToggle }: { on: boolean; onToggle: () => void }
       aria-checked={on}
       onClick={onToggle}
       title="켜면 시딩과 브랜딩 비용(그 달 일수로 나눔)을 광고비에 포함합니다. MER·공헌이익도 같이 바뀝니다."
-      className={`flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${on
-        ? "border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-700 dark:bg-violet-950/40 dark:text-violet-300"
-        : "border-gray-200 text-gray-500 hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"}`}
+      className={`mt-1 flex min-h-11 w-full items-center gap-2 rounded-lg text-left text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${on ? "text-violet-700 dark:text-violet-300" : TXT.sub}`}
     >
-      <span aria-hidden="true" className={`relative inline-block h-3 w-5 rounded-full transition-colors ${on ? "bg-violet-500" : "bg-gray-300 dark:bg-zinc-600"}`}>
-        <span className={`absolute top-0.5 h-2 w-2 rounded-full bg-white transition-all ${on ? "left-2.5" : "left-0.5"}`} />
+      <span aria-hidden="true" className={`relative inline-block h-5 w-9 shrink-0 rounded-full transition-colors ${on ? "bg-violet-500" : "bg-gray-300 dark:bg-zinc-600"}`}>
+        <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${on ? "left-[18px]" : "left-0.5"}`} />
       </span>
-      시딩과 브랜딩
+      <span className="whitespace-nowrap"><span className="md:hidden">시딩, 브랜딩</span><span className="hidden md:inline">시딩과 브랜딩 포함</span></span>
     </button>
   );
 }
@@ -696,7 +714,7 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
             return (
               <tr key={r.date} className={`${belowBep && !isToday ? "bg-rose-50/40 dark:bg-rose-950/20" : ""} ${isToday ? "text-gray-400 dark:text-zinc-500" : "text-gray-700 dark:text-zinc-300"}`}>
                 <td className="py-2 pr-3 font-mono text-xs">
-                  {r.date}{isToday && <span className="ml-1 text-[10px]">(당일)</span>}
+                  {r.date}{isToday && <span className="ml-1 text-xs">(당일)</span>}
                 </td>
                 <td className="py-2 pr-3 text-right tabular-nums">{NUM.format(r.reportCount)}</td>
                 <td className="py-2 pr-3 text-right tabular-nums">{fmtKrw(r.netRevenue)}</td>
@@ -713,7 +731,7 @@ function DailyTable({ rows, loading }: { rows: DailyRow[]; loading: boolean }) {
           })}
         </tbody>
       </table>
-      <p className="mt-3 text-[11px] text-gray-400 dark:text-zinc-500">※ MER(전체 매출 ÷ 광고비)이 손익분기 미만인 행은 옅은 적색 배경 · 당일(미완료) 은 회색</p>
+      <p className="mt-3 text-xs text-gray-500 dark:text-zinc-400">※ MER(전체 매출 ÷ 광고비)이 손익분기 미만인 행은 옅은 적색 배경 · 당일(미완료) 은 회색</p>
     </div>
   );
 }
