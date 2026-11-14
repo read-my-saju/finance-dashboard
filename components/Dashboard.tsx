@@ -585,13 +585,13 @@ function FilterBar({
   // 휴대폰: '직접'을 누르면 날짜 입력이 펼쳐진다. 고른 기간이 프리셋이 아니어도 '직접'이 선택 표시.
   const [customOpen, setCustomOpen] = useState(false);
   const directOn = customOpen || current === null;
-  const dateBox = `flex min-h-11 min-w-0 items-center gap-2 rounded-lg border border-[#E3E8EE] bg-white px-3 text-sm md:min-h-10 md:px-2 md:text-xs dark:border-[#232836] dark:bg-[#12151C] ${TXT.dim}`;
-  const dateInput = "min-w-0 flex-1 bg-transparent outline-none dark:[color-scheme:dark]";
+  const dateBox = `flex min-h-11 min-w-0 flex-col justify-center gap-1 rounded-lg border border-[#E3E8EE] bg-white px-2 py-1 text-xs md:min-h-10 md:flex-row md:items-center md:gap-2 md:py-0 dark:border-[#232836] dark:bg-[#12151C] ${TXT.dim}`;
+  const dateInput = "min-w-0 flex-1 bg-transparent text-base md:text-xs outline-none dark:[color-scheme:dark]";
   const selected = "!border-[#0D1B2A] !bg-[#0D1B2A] !text-white dark:!border-[#262C3B] dark:!bg-[#262C3B] dark:!text-[#ECEEF2]";
   return (
     <div className="mb-6 grid grid-cols-4 gap-2 md:flex md:flex-wrap md:items-center">
       {PRESETS.map(([key, label]) => {
-        const on = current === key && !customOpen;
+        const on = current === key;
         return (
           <button
             key={key}
@@ -604,9 +604,9 @@ function FilterBar({
           </button>
         );
       })}
-      <button type="button" aria-pressed={directOn} onClick={() => setCustomOpen(true)} className={`${ctrlBtn} md:hidden ${directOn ? selected : ""}`}>직접</button>
+      <button type="button" aria-expanded={directOn} aria-controls="custom-range" aria-pressed={current === null} onClick={() => setCustomOpen((o) => !o)} className={`${ctrlBtn} md:hidden ${current === null ? selected : ""}`}>직접</button>
       <div className="hidden grow md:block" />
-      <div className={`col-span-4 grid-cols-2 gap-2 md:contents ${directOn ? "grid" : "hidden"}`}>
+      <div id="custom-range" className={`col-span-4 grid-cols-2 gap-2 md:contents ${directOn ? "grid" : "hidden"}`}>
         <label className={dateBox}>
           <span>시작</span>
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={dateInput} />
@@ -667,6 +667,7 @@ function MarketingSwitch({ on, onToggle }: { on: boolean; onToggle: () => void }
       type="button"
       role="switch"
       aria-checked={on}
+      aria-label="시딩과 브랜딩 포함"
       onClick={onToggle}
       title="켜면 시딩과 브랜딩 비용(그 달 일수로 나눔)을 광고비에 포함합니다. MER·공헌이익도 같이 바뀝니다."
       className={`mt-1 flex min-h-11 w-full items-center gap-2 rounded-lg text-left text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${on ? "text-violet-700 dark:text-violet-300" : TXT.sub}`}
@@ -674,7 +675,7 @@ function MarketingSwitch({ on, onToggle }: { on: boolean; onToggle: () => void }
       <span aria-hidden="true" className={`relative inline-block h-5 w-9 shrink-0 rounded-full transition-colors ${on ? "bg-violet-500" : "bg-gray-300 dark:bg-zinc-600"}`}>
         <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${on ? "left-[18px]" : "left-0.5"}`} />
       </span>
-      시딩, 브랜딩 포함
+      <span aria-hidden="true" className="whitespace-nowrap"><span className="md:hidden">시딩, 브랜딩</span><span className="hidden md:inline">시딩과 브랜딩 포함</span></span>
     </button>
   );
 }

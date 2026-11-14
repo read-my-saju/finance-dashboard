@@ -75,7 +75,7 @@ export default function Trend30({ rows, theme }: { rows: TrendRow[]; theme: "lig
         />
         <div className="flex gap-2" aria-hidden="true">
           {/* 왼쪽 눈금 */}
-          <div aria-hidden="true" className={`relative w-11 flex-none text-xs ${TXT.dim}`}>
+          <div aria-hidden="true" className={`relative w-12 flex-none text-xs ${TXT.dim}`}>
             {ticks.map((k) => (
               <span key={k} className="absolute right-0" style={{ top: px(k * step) - 7 }}>{k ? fmtMan(k * step) : "0"}</span>
             ))}
