@@ -1,5 +1,10 @@
 /** 대시보드 화면 가공 순수 함수. 날짜는 YYYY-MM-DD(KST) 문자열을 UTC 날짜로 다룬다. */
 
+import { commonCampaignWords, shortCampaignName } from "./campaign-name";
+import { contributionProfitAtRoas } from "./calc";
+import type { ChannelGroup } from "./channel";
+import type { ChannelGroupRow, ChannelRow } from "./channel-revenue";
+
 export type PresetKey = "today" | "yesterday" | "week" | "month30" | "thisMonth" | "lastMonth" | "all";
 
 const PRESET_KEYS: PresetKey[] = ["today", "yesterday", "week", "month30", "thisMonth", "lastMonth", "all"];
@@ -94,4 +99,43 @@ export function verdictOf(roas: number | null, breakEven: number): Verdict | nul
   const gap = Math.round((roas - breakEven) * 1e6) / 1e6;
   if (gap < 0) return "bad";
   return gap >= 5 ? "good" : "warn";
+}
+
+export type CampaignOps = { campaignId: string; ctr: number | null; cpm: number | null; dailyBudget: number | null };
+export type CampaignView = {
+  campaignId: string; name: string; spend: number; metaRoas: number | null; lastClickRoas: number | null; lastClickN: number;
+  profit: number; verdict: Verdict | null; ctr: number | null; cpm: number | null; dailyBudget: number | null;
+};
+
+/** 캠페인 줄에 광고관리자 운영 지표를 붙인다. 광고비 0 이하는 뺀다. 광고비 큰 순. 메타 ROAS 가 없으면 손익은 -광고비. */
+export function mergeCampaignOps(children: ChannelRow[], ops: CampaignOps[], breakEven: number): CampaignView[] {
+  const common = commonCampaignWords(children.filter((r) => r.campaignId).map((r) => r.name));
+  return children
+    .filter((r) => r.campaignId && r.spend > 0)
+    .map((r) => {
+      const o = ops.find((x) => x.campaignId === r.campaignId);
+      return {
+        campaignId: r.campaignId!, name: shortCampaignName(r.name, common), spend: r.spend,
+        metaRoas: r.pixelRoas, lastClickRoas: r.roas, lastClickN: r.n,
+        profit: contributionProfitAtRoas(r.spend, r.pixelRoas ?? 0, breakEven),
+        verdict: verdictOf(r.pixelRoas, breakEven),
+        ctr: o?.ctr ?? null, cpm: o?.cpm ?? null, dailyBudget: o?.dailyBudget ?? null,
+      };
+    })
+    .sort((a, b) => b.spend - a.spend);
+}
+
+export type MixRow = { key: ChannelGroup; amount: number; n: number; share: number };
+const MIX_ORDER: ChannelGroup[] = ["meta", "search", "unattributed", "owned", "referral", "influencer", "search_ad"];
+
+/** 채널 묶음별 매출과 비중. influence = 메타 + 검색 + 미귀속(광고 영향권). */
+export function channelMix(groups: ChannelGroupRow[]): { rows: MixRow[]; influence: { amount: number; share: number } } {
+  const total = groups.reduce((s, g) => s + g.rev, 0);
+  const rows = MIX_ORDER.map((key) => {
+    const g = groups.find((x) => x.group === key);
+    const amount = g?.rev ?? 0;
+    return { key, amount, n: g?.n ?? 0, share: total === 0 ? 0 : (amount / total) * 100 };
+  });
+  const infl = rows.slice(0, 3);
+  return { rows, influence: { amount: infl.reduce((s, r) => s + r.amount, 0), share: infl.reduce((s, r) => s + r.share, 0) } };
 }
