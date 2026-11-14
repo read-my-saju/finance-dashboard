@@ -38,5 +38,10 @@ assert.equal(verdictOf(138.6, 116.2), "good");
 assert.equal(verdictOf(120, 116.2), "warn");
 assert.equal(verdictOf(110, 116.2), "bad");
 assert.equal(verdictOf(null, 116.2), null);
+assert.equal(verdictOf(121.2, 116.2), "good");
+assert.equal(verdictOf(121.1, 116.2), "warn");
+assert.equal(verdictOf(116.2, 116.2), "warn");
+assert.equal(verdictOf(116.1, 116.2), "bad");
+assert.deepEqual(b.segs.map((s) => s.label), ["세금과 비용", "광고비", "남는 돈"]);
 
 console.log("dashboard-view.test OK");

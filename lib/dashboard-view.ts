@@ -72,7 +72,7 @@ export function profitBreakdown(t: BreakdownInput): { rows: BreakdownRow[]; segs
       row("=", "공헌이익 (남는 돈)", t.contributionProfit, "final"),
     ],
     segs: [
-      { key: "costs", label: "부가세·수수료·원가", amount: costs, per100: p(costs) },
+      { key: "costs", label: "세금과 비용", amount: costs, per100: p(costs) },
       { key: "ad", label: "광고비", amount: t.adSpend, per100: p(t.adSpend) },
       { key: "profit", label: "남는 돈", amount: profit, per100: p(profit) },
     ],
@@ -87,9 +87,10 @@ export function profitHeadline(profitPer100: number, live: boolean): string {
 
 export type Verdict = "good" | "warn" | "bad";
 
-/** ROAS가 손익분기 미만이면 bad, 분기 대비 10% 이상 위면 good, 사이는 warn. */
+/** 메타 ROAS - 손익분기: 5%p 이상 good, 0~5%p warn, 0 미만 bad. 부동소수점 오차는 소수 6자리로 정리. */
 export function verdictOf(roas: number | null, breakEven: number): Verdict | null {
   if (roas === null) return null;
-  if (roas < breakEven) return "bad";
-  return roas >= breakEven * 1.1 ? "good" : "warn";
+  const gap = Math.round((roas - breakEven) * 1e6) / 1e6;
+  if (gap < 0) return "bad";
+  return gap >= 5 ? "good" : "warn";
 }
