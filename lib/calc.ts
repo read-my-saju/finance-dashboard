@@ -8,8 +8,8 @@
  *   PG수수료(pgFee)          = 결제매출(VAT 포함 실제 결제금액) × 요율(결제일별: ~6/18 3.52% 일괄 / 6/19~ 결제수단별)
  *                              (PG 는 결제금액 전체에 요율을 매김. 토스 정산: payOutAmount = amount − fee.
  *                               수수료 부가세는 매입세액공제 대상이라 원가에 넣지 않음 — 2026-09-08 수정)
- *   리포트 생성원가          = 결제완료 건수 × 건당원가(결제일별: ~2026-04 250 / 2026-05 266 / 2026-06 390 / 2026-07 870 / 2026-08 750 / 2026-09 1590)
- *                              2026-10-01~10-10 1500, 2026-10-11~ 500 (Luna 전환·이미지 포함 건당 원가)
+ *   리포트 생성원가          = 결제완료 건수 × 건당원가(결제일별: ~2026-04 250 / 2026-05 266 / 2026-06 390 / 2026-07 870 / 2026-08 750)
+ *                              2026-09-01~11-06 0원 + 실제 AI API 카드 결제액(manual-costs.ts), 2026-11-07~ 270원(OpenAI 실결제 기준)
  *   광고비                   = 메타 지출 + 네이버 검색광고 (+ 화면에서 켜면 시딩·브랜딩, lib/manual-costs.ts 일할). 시딩·브랜딩은 메타 캠페인·채널 ROAS 에는 안 섞음
  *   ROAS                     = 결제매출(VAT 포함) / 광고비 × 100
  *   손익분기 ROAS (BEP)      = 결제매출(VAT포함) / 손익분기광고비 × 100 (원가구조 기반 동적)
@@ -120,14 +120,18 @@ export const BREAK_EVEN_ROAS_FALLBACK = 118;  // 매출이 원가(PG+리포트)�
  *   2026-10-01~10-10 : 1500 (사장님 결정 2026-11-08: Luna 전환 전, 리포트 생성비용 건당 1,500원)
  *   2026-10-11~      : 500  (사장님 결정 2026-11-08: Luna 전환 반영일 10/11부터 건당 500원, 성수님 확인 금액)
  *   10월 Claude·OpenAI API 결제액(934,769)은 위 건당 원가에 들어 있어 따로 더하지 않는다.
+ *
+ * → 2026-11-23 사장님 결정으로 9월부터 실제 결제 기준으로 바꿈(무료 크레딧 사용분과 추정 단가는 비용 아님):
+ *   2026-09-01~11-06 : 0   (실제 카드 결제액을 manual-costs.ts AI_API_PAYMENTS 로 월별 입력. 9월 344,196, 10월 912,669,
+ *                            10/8~11/6 은 OpenAI 무료 크레딧이라 0)
+ *   2026-11-07~      : 270 (OpenAI 크레딧 소진 후 자동충전 실결제 770,786 ÷ 11/7~11/22 결제 2,849건 = 270.5원)
  */
 export const REPORT_COST_PER_UNIT_2026_05 = 266;
 export const REPORT_COST_PER_UNIT_2026_06 = 390;
 export const REPORT_COST_PER_UNIT_2026_07 = 870;
 export const REPORT_COST_PER_UNIT_2026_08 = 750;
-export const REPORT_COST_PER_UNIT_2026_09 = 1590;
-export const REPORT_COST_PER_UNIT_2026_10_EARLY = 1500;
-export const REPORT_COST_PER_UNIT_FROM_2026_10_11 = 500;
+export const REPORT_COST_ACTUAL_FROM = "2026-09-01";      // 이 날부터 건당 0원 + 실제 결제액(AI_API_PAYMENTS)
+export const REPORT_COST_PER_UNIT_FROM_2026_11_07 = 270;  // OpenAI 실결제 기준 건당 원가
 
 /** 결제 시각까지 보는 건당 원가. 하루 중간에 단가가 바뀌는 구간이 생기면 여기서 가른다. */
 export function reportCostPerUnitAt(
@@ -142,9 +146,8 @@ export function reportCostPerUnitForDate(
   date: string,
   base: number = DEFAULT_REPORT_COST_PER_UNIT,
 ): number {
-  if (date >= "2026-10-11") return REPORT_COST_PER_UNIT_FROM_2026_10_11;
-  if (date >= "2026-10-01") return REPORT_COST_PER_UNIT_2026_10_EARLY;
-  if (date >= "2026-09-01") return REPORT_COST_PER_UNIT_2026_09;
+  if (date >= "2026-11-07") return REPORT_COST_PER_UNIT_FROM_2026_11_07;
+  if (date >= REPORT_COST_ACTUAL_FROM) return 0;
   if (date >= "2026-08-01") return REPORT_COST_PER_UNIT_2026_08;
   if (date >= "2026-07-01") return REPORT_COST_PER_UNIT_2026_07;
   if (date >= "2026-06-01") return REPORT_COST_PER_UNIT_2026_06;
