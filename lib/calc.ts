@@ -68,11 +68,22 @@ export const PG_FEE_CUTOVER = "2026-06-19";   // 토스페이먼츠 전환일 (�
 export const PG_FEE_VAT_FROM = "2026-10-01";  // 이 날부터 PG 수수료에 수수료 부가세 10% 포함 (사장님 결정 2026-11-08, 월별 손익 엑셀과 같게)
 
 /**
+ * 2026-08-14~ 영세 가맹점 우대수수료 (사장님 결정 2026-11-23, 3.2% 일괄 유지 결정을 대체).
+ * 토스 정산내역(결제수단별, 매출일 9/1~11/22)의 일자별 수수료를 대시보드 결제수단별 매출로 역산한 실효율:
+ *   신용카드 2.07% (월 2.01~2.13) → 2.1%, 간편결제 2.95% (월 2.87~3.03) → 3.0%, 계좌이체 2.03% → 2.0% 유지.
+ *   이 요율로 9월(부가세 별도) 1,539,411 vs 토스 실제 1,515,158, 10월(부가세 포함) 3,979,928 vs 3,897,307 (약 +2%).
+ */
+export const PG_FEE_SME_FROM = "2026-08-14";
+export const PG_FEE_RATE_CARD_SME = 0.021;
+export const PG_FEE_RATE_EASYPAY_SME = 0.030;
+
+/**
  * 참고 (2026-09-08 토스 상점관리자 > 정산내역 > 건별로 확인):
  *   6/19~8/13 은 전 결제 3.20%. 8/14 부터 영세 가맹점 우대수수료가 적용돼 카드사 직접 결제(삼성·신한 등)는
  *   2.1%, 간편결제(카카오페이·토스페이 3.2%, 네이버페이 3.3%)는 그대로 — 12일 합산 실효 약 2.56%.
  *   토스 거래조회로는 카드 직접/간편결제를 정확히 못 가르므로 사장님 결정으로 3.2% 일괄 유지 (보수적:
  *   8/14 이후 수수료를 실제보다 약 25% 높게 잡음). 정확히 맞추려면 토스 정산 API 연동 필요.
+ *   → 2026-11-23 토스 결제수단 라벨(신용카드/간편결제)로 나눠 실측 요율 적용으로 변경 (PG_FEE_SME_FROM 참고).
  */
 
 export function pgFeeRateForMethod(label: string): number {
@@ -86,7 +97,11 @@ export function pgFeeRateForMethod(label: string): number {
  * 6/19 이전 결제는 PortOne 계약 요율 3.52% 일괄, 이후는 결제수단별 요율.
  */
 export function pgFeeRateForMethodOnDate(label: string, date: string): number {
-  const rate = date < PG_FEE_CUTOVER ? DEFAULT_PG_FEE_RATE : pgFeeRateForMethod(label);
+  let rate = date < PG_FEE_CUTOVER ? DEFAULT_PG_FEE_RATE : pgFeeRateForMethod(label);
+  if (date >= PG_FEE_SME_FROM) {
+    if (label === "신용카드") rate = PG_FEE_RATE_CARD_SME;
+    else if (label === "간편결제") rate = PG_FEE_RATE_EASYPAY_SME;
+  }
   return date >= PG_FEE_VAT_FROM ? rate * 1.1 : rate;
 }
 export const BREAK_EVEN_ROAS_FALLBACK = 118;  // 매출이 원가(PG+리포트)도 못 덮는 예외 시 fallback (% 단위)
