@@ -34,14 +34,19 @@ assert.equal(Math.round(p.daily[0].pgFee), 30_240, `profit.daily.pgFee=${p.daily
 // 화면 "PG X.XX%" 는 결제매출(VAT 포함) 대비 실효요율.
 assert.equal(p.settings.pgFeeRate.toFixed(4), "0.0320", `settings.pgFeeRate=${p.settings.pgFeeRate}`);
 
-// 결제일별 요율 분기: ~6/18 3.52% / 6/19~ 3.2% 일괄 (이체는 2.0%)
+// 결제일별 요율 분기: ~6/18 3.52% / 6/19~8/13 3.2% 일괄 (이체는 2.0%)
 assert.equal(pgFeeRateForMethodOnDate("신용카드", "2026-06-18"), 0.0352);
 assert.equal(pgFeeRateForMethodOnDate("신용카드", "2026-08-13"), 0.032);
-assert.equal(pgFeeRateForMethodOnDate("간편결제", "2026-09-01"), 0.032);
+assert.equal(pgFeeRateForMethodOnDate("간편결제", "2026-08-13"), 0.032);
+// 2026-08-14~ 영세 가맹점 우대: 카드 직접 2.1%, 간편결제 3.0% (토스 정산내역 9/1~11/22 실측 역산)
+assert.equal(pgFeeRateForMethodOnDate("신용카드", "2026-08-14"), 0.021);
+assert.equal(pgFeeRateForMethodOnDate("간편결제", "2026-09-01"), 0.03);
 assert.equal(pgFeeRateForMethodOnDate("계좌이체", "2026-09-01"), 0.02);
+assert.equal(pgFeeRateForMethodOnDate("Npay", "2026-09-01"), 0.033);
 // 2026-10~ 수수료 부가세 10% 포함
-assert.ok(Math.abs(pgFeeRateForMethodOnDate("간편결제", "2026-09-30") - 0.032) < 1e-12);
-assert.ok(Math.abs(pgFeeRateForMethodOnDate("간편결제", "2026-10-01") - 0.0352) < 1e-12);
+assert.ok(Math.abs(pgFeeRateForMethodOnDate("간편결제", "2026-09-30") - 0.03) < 1e-12);
+assert.ok(Math.abs(pgFeeRateForMethodOnDate("간편결제", "2026-10-01") - 0.033) < 1e-12);
+assert.ok(Math.abs(pgFeeRateForMethodOnDate("신용카드", "2026-10-01") - 0.0231) < 1e-12);
 assert.ok(Math.abs(pgFeeRateForMethodOnDate("계좌이체", "2026-10-01") - 0.022) < 1e-12);
 
 // 리포트 건당 원가(월별 실사용): 7월 870 / 8월 750 / 9월 1,590 / 10월~ 1,590원
