@@ -23,6 +23,7 @@ import { AI_API_PAYMENTS, SERVER_COSTS, BRANDING_COSTS, NAVER_AD_COSTS, SEEDING_
 import { MixpanelConfigError } from "./mixpanel";
 import { loadStoredAttributions } from "./mixpanel-store";
 import { buildChannelPeriod, campaignRefs, type ChannelPeriod } from "./channel-revenue";
+import { fetchOpenAiCostByDay } from "./openai-costs";
 
 const TTL_MS = 5 * 60 * 1000;
 
@@ -36,6 +37,9 @@ type CacheEntry = {
   // 광고별 url_tags (수동 utm 태그 → 캠페인). 받기 실패면 빈 배열 → 캠페인 이름 키워드 규칙으로 동작.
   adTags: AdTagRef[];
   metaError: string | null;
+  // 그날 실제 OpenAI 사용액(원, lib/openai-costs.ts). 없는 날은 건당 단가로 계산된다.
+  aiCost: Array<{ date: string; spend: number }>;
+  aiCostError: string | null;
 };
 
 // 기간별 entry. 채널 성과가 이전 기간도 함께 읽으므로 몇 개를 같이 들고 있는다.
@@ -76,6 +80,9 @@ async function loadRawData(opts: LoadOptions): Promise<CacheEntry> {
     return hit;
   }
 
+  // OpenAI 사용액은 결제·메타 조회와 같이 받는다(실패해도 throw 하지 않음).
+  const aiCostPromise = fetchOpenAiCostByDay(opts.from, opts.until);
+
   // PortOne(과거) + Toss(2026-06-19~) 합산. 양쪽 모두 실패할 때만 throw.
   const combined = await fetchCombinedPayments({ from: opts.from, until: opts.until });
   if (combined.bothFailed) {
@@ -103,6 +110,7 @@ async function loadRawData(opts: LoadOptions): Promise<CacheEntry> {
     console.warn("[dashboard-cache] fetchCampaignBudgets failed:", String(e?.message || e).slice(0, 200));
   }
   const adTags = await loadAdTags(Boolean(opts.force));
+  const aiCost = await aiCostPromise;
 
   const entry: CacheEntry = {
     key,
@@ -112,6 +120,8 @@ async function loadRawData(opts: LoadOptions): Promise<CacheEntry> {
     metaBudgets,
     adTags,
     metaError,
+    aiCost: aiCost.rows,
+    aiCostError: aiCost.error,
   };
   cache.delete(key);
   cache.set(key, entry);
@@ -140,6 +150,7 @@ export async function loadProfitSummary(opts: LoadOptions & {
     reportCostPerUnit: opts.reportCostPerUnit,
     extraAdByDay: [...spreadByMonth(NAVER_AD_COSTS, range), ...(withMarketing ? marketingByDay(range) : [])],
     extraReportCostByDay: [...spreadByMonth(AI_API_PAYMENTS, range), ...spreadByMonth(SERVER_COSTS, range)],
+    actualReportCostByDay: entry.aiCost,
   });
   const adBreakdown: AdBreakdown = {
     meta: metaByDay.reduce((s, r) => s + r.spend, 0),
@@ -148,7 +159,8 @@ export async function loadProfitSummary(opts: LoadOptions & {
     branding: totalInRange(BRANDING_COSTS, range),
     server: totalInRange(SERVER_COSTS, range),
   };
-  return { summary: compute(false), summaryWithMarketing: compute(true), adBreakdown, metaError: entry.metaError, cached: Boolean(wasCached) };
+  const notice = [entry.metaError, entry.aiCostError].filter(Boolean).join(" / ") || null;
+  return { summary: compute(false), summaryWithMarketing: compute(true), adBreakdown, metaError: notice, cached: Boolean(wasCached) };
 }
 
 export type MetaCampaignRow = {
@@ -295,6 +307,7 @@ export async function loadChannelRevenue(opts: LoadOptions): Promise<{
       campaigns,
       adTags: curRaw.adTags,
       range: r,
+      actualReportCostByDay: raw.aiCost.filter((c) => c.date >= r.from),
     });
   return {
     cur: build(curRaw, range),

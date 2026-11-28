@@ -9,7 +9,7 @@
  *                              (PG 는 결제금액 전체에 요율을 매김. 토스 정산: payOutAmount = amount − fee.
  *                               수수료 부가세는 매입세액공제 대상이라 원가에 넣지 않음 — 2026-09-08 수정)
  *   리포트 생성원가          = 결제완료 건수 × 건당원가(결제일별: ~2026-04 250 / 2026-05 266 / 2026-06 390 / 2026-07 870 / 2026-08 750)
- *                              2026-09-01~11-06 0원 + 실제 AI API 카드 결제액(manual-costs.ts), 2026-11-07~ 270원(OpenAI 실결제 기준)
+ *                              2026-09-01~11-06 0원 + 실제 AI API 카드 결제액(manual-costs.ts), 2026-11-07~ OpenAI 실제 사용액(lib/openai-costs.ts, 못 받은 날은 350원)
  *   광고비                   = 메타 지출 + 네이버 검색광고 (+ 화면에서 켜면 시딩·브랜딩, lib/manual-costs.ts 일할). 시딩·브랜딩은 메타 캠페인·채널 ROAS 에는 안 섞음
  *   ROAS                     = 결제매출(VAT 포함) / 광고비 × 100
  *   손익분기 ROAS (BEP)      = 결제매출(VAT포함) / 손익분기광고비 × 100 (원가구조 기반 동적)
@@ -125,13 +125,17 @@ export const BREAK_EVEN_ROAS_FALLBACK = 118;  // 매출이 원가(PG+리포트)�
  *   2026-09-01~11-06 : 0   (실제 카드 결제액을 manual-costs.ts AI_API_PAYMENTS 로 월별 입력. 9월 344,196, 10월 912,669,
  *                            10/8~11/6 은 OpenAI 무료 크레딧이라 0)
  *   2026-11-07~      : 270 (OpenAI 크레딧 소진 후 자동충전 실결제 770,786 ÷ 11/7~11/22 결제 2,849건 = 270.5원)
+ *
+ * → 2026-11-28 사장님 결정: 11/7~ 회사 전체 리포트 원가는 OpenAI 실제 사용액(lib/openai-costs.ts)으로 잡는다.
+ *   270원은 11/15 구독 크레딧($151) 사용분이 빠져 낮게 나온 값이라 350원으로 바꾼다(11/8~28 사용 $959.35 ÷ 결제 3,769건
+ *   × 카드 환율 1,370원 = 349원). 이 단가는 사용액을 못 받은 날과 채널, 캠페인별 행에만 쓰인다.
  */
 export const REPORT_COST_PER_UNIT_2026_05 = 266;
 export const REPORT_COST_PER_UNIT_2026_06 = 390;
 export const REPORT_COST_PER_UNIT_2026_07 = 870;
 export const REPORT_COST_PER_UNIT_2026_08 = 750;
 export const REPORT_COST_ACTUAL_FROM = "2026-09-01";      // 이 날부터 건당 0원 + 실제 결제액(AI_API_PAYMENTS)
-export const REPORT_COST_PER_UNIT_FROM_2026_11_07 = 270;  // OpenAI 실결제 기준 건당 원가
+export const REPORT_COST_PER_UNIT_FROM_2026_11_07 = 350;  // OpenAI 사용액 기준 건당 원가(사용액을 못 받은 날, 채널별 행)
 
 /** 결제 시각까지 보는 건당 원가. 하루 중간에 단가가 바뀌는 구간이 생기면 여기서 가른다. */
 export function reportCostPerUnitAt(

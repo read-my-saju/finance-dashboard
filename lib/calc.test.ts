@@ -12,6 +12,36 @@ import assert from "node:assert/strict";
 import { calc, contributionProfitAtRoas, pgFeeRateForMethodOnDate, reportCostPerUnitAt, reportCostPerUnitForDate } from "./calc";
 import { computeProfit } from "./profit";
 import { AI_API_PAYMENTS, SERVER_COSTS, BRANDING_COSTS, NAVER_AD_COSTS, SEEDING_COSTS, marketingByDay, spreadByMonth, totalInRange } from "./manual-costs";
+import { usdByDay } from "./openai-costs";
+
+// OpenAI Costs API 버킷 → UTC 날짜별 달러. 0원인 날과 아직 안 끝난 하루는 빠져서 건당 단가로 계산된다.
+const t = (iso: string) => Date.parse(iso) / 1000;
+const buckets = [
+  { start_time: t("2026-11-20T00:00:00Z"), results: [{ amount: { value: 30.5 } }, { amount: { value: "15.25" } }] },
+  { start_time: t("2026-11-21T00:00:00Z"), results: [] },
+  { start_time: t("2026-11-22T00:00:00Z"), results: [{ amount: { value: 12 } }] },
+];
+// KST 11/23 03:00 = UTC 11/22 18:00: 11/22 하루는 아직 진행 중이라 뺀다
+const usd = usdByDay(buckets, t("2026-11-22T18:00:00Z"));
+assert.equal(usd.get("2026-11-20"), 45.75);
+assert.equal(usd.has("2026-11-21"), false);
+assert.equal(usd.has("2026-11-22"), false);
+assert.equal(usdByDay(buckets, t("2026-11-23T00:00:00Z")).get("2026-11-22"), 12, "UTC 자정이 지나면 넣는다");
+
+// 실제 AI 사용액이 있는 날은 건당 원가 합 대신 그 값, 없는 날은 건당 350원. 서버비는 그대로 더한다.
+const ai = computeProfit({
+  payments: [
+    { id: "x", status: "PAID", paidAt: "2026-11-20T12:00:00+09:00", amount: { total: 39_900 }, method: { type: "CARD" } } as any,
+    { id: "y", status: "PAID", paidAt: "2026-11-21T12:00:00+09:00", amount: { total: 39_900 }, method: { type: "CARD" } } as any,
+  ],
+  metaByDay: [],
+  range: { from: "2026-11-20", until: "2026-11-21" },
+  extraReportCostByDay: [{ date: "2026-11-20", spend: 1_000 }],
+  actualReportCostByDay: [{ date: "2026-11-20", spend: 60_000 }],
+});
+assert.equal(ai.daily.find((d) => d.date === "2026-11-20")!.reportCost, 61_000);
+assert.equal(ai.daily.find((d) => d.date === "2026-11-21")!.reportCost, 350);
+assert.equal(ai.totals.reportCost, 61_350);
 
 const r = calc({ netRevenue: 945_000, adSpend: 0, reportCount: 0, pgFeeRate: 0.032, reportCostPerUnit: 0 });
 assert.equal(Math.round(r.pgFee), 30_240, `calc.pgFee=${r.pgFee}`);
@@ -49,7 +79,7 @@ assert.ok(Math.abs(pgFeeRateForMethodOnDate("간편결제", "2026-10-01") - 0.03
 assert.ok(Math.abs(pgFeeRateForMethodOnDate("신용카드", "2026-10-01") - 0.0231) < 1e-12);
 assert.ok(Math.abs(pgFeeRateForMethodOnDate("계좌이체", "2026-10-01") - 0.022) < 1e-12);
 
-// 리포트 건당 원가: 7월 870 / 8월 750 (실사용), 9/1~11/6 0원(실결제액 별도), 11/7~ 270원
+// 리포트 건당 원가: 7월 870 / 8월 750 (실사용), 9/1~11/6 0원(실결제액 별도), 11/7~ 350원(OpenAI 사용액을 못 받은 날)
 assert.equal(reportCostPerUnitForDate("2026-07-31"), 870);
 assert.equal(reportCostPerUnitForDate("2026-08-01"), 750);
 assert.equal(reportCostPerUnitForDate("2026-08-31"), 750);
@@ -59,9 +89,9 @@ assert.equal(reportCostPerUnitForDate("2026-09-30"), 0);
 assert.equal(reportCostPerUnitForDate("2026-10-01"), 0);
 assert.equal(reportCostPerUnitForDate("2026-10-11"), 0);
 assert.equal(reportCostPerUnitForDate("2026-11-06"), 0);
-// 2026-11-07~: OpenAI 무료 크레딧 소진 후 실결제 ÷ 결제 건수 = 건당 270원
-assert.equal(reportCostPerUnitForDate("2026-11-07"), 270);
-assert.equal(reportCostPerUnitForDate("2026-12-01"), 270);
+// 2026-11-07~: OpenAI 사용액을 못 받은 날의 건당 350원(11/8~28 사용 ÷ 결제 건수)
+assert.equal(reportCostPerUnitForDate("2026-11-07"), 350);
+assert.equal(reportCostPerUnitForDate("2026-12-01"), 350);
 
 // 실제 정산 메일 재현: 매출일 2026-08-13 매출액 1,778,260 → PG이용료 56,978 (오차 1% 이내)
 const s = computeProfit({
@@ -75,7 +105,7 @@ assert.ok(Math.abs(s.totals.pgFee - 56_978) / 56_978 < 0.01, `settlement 2026-08
 
 assert.equal(reportCostPerUnitAt("2026-09-30", Date.parse("2026-09-30T23:59:59+09:00")), 0);
 assert.equal(reportCostPerUnitAt("2026-11-06", Date.parse("2026-11-06T23:59:59+09:00")), 0);
-assert.equal(reportCostPerUnitAt("2026-11-07", Date.parse("2026-11-07T00:00:00+09:00")), 270);
+assert.equal(reportCostPerUnitAt("2026-11-07", Date.parse("2026-11-07T00:00:00+09:00")), 350);
 
 // 2026-10~: 리포트 원가 = API 결제액, 광고비 = 메타 + 시딩·네이버. 손으로 넣은 비용은 그 달 일수로 나눠 매일 넣는다.
 const oct = { from: "2026-10-01", until: "2026-10-31" };
@@ -94,7 +124,7 @@ assert.equal(sum(marketingByDay({ from: "2026-10-27", until: "2026-11-02" })), M
 assert.equal(sum(marketingByDay({ from: "2026-12-01", until: "2026-12-31" })), 58_990);
 assert.equal(Math.round(totalInRange(AI_API_PAYMENTS, { from: "2026-09-01", until: "2026-09-30" })), 344_196, "9월 AI API 카드 결제액");
 assert.equal(Math.round(totalInRange(AI_API_PAYMENTS, { from: "2026-10-01", until: "2026-10-31" })), 912_669, "10월 AI API 카드 결제액");
-assert.equal(Math.round(totalInRange(AI_API_PAYMENTS, { from: "2026-11-01", until: "2026-11-30" })), 0, "11월은 11/7부터 건당 270원");
+assert.equal(Math.round(totalInRange(AI_API_PAYMENTS, { from: "2026-11-01", until: "2026-11-30" })), 0, "11월은 11/7부터 OpenAI 사용액");
 assert.equal(Math.round(totalInRange(NAVER_AD_COSTS, { from: "2026-08-01", until: "2026-09-30" })), 50_166, "광고센터 소진 합계");
 assert.equal(Math.round(totalInRange(SERVER_COSTS, oct)), 132_063, "10월 서버비 = Vercel 2건 + 도메인");
 assert.equal(Math.round(totalInRange(SERVER_COSTS, { from: "2026-09-01", until: "2026-09-30" })), 0, "9월 AWS 는 크레딧이라 0");

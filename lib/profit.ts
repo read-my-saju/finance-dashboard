@@ -170,6 +170,7 @@ export function computeProfit(args: {
   reportCostPerUnit?: number;
   extraAdByDay?: Array<{ date: string; spend: number }>;          // 메타 외 광고비(네이버·시딩·브랜딩, 일할)
   extraReportCostByDay?: Array<{ date: string; spend: number }>;  // 건당 원가 밖 AI 결제액 + 서버비(일할)
+  actualReportCostByDay?: Array<{ date: string; spend: number }>; // 그날 실제 AI 사용액(lib/openai-costs.ts). 있는 날은 건당 원가 합 대신 이 값
 }): ProfitSummary {
   const pgFeeRate = args.pgFeeRate ?? DEFAULT_PG_FEE_RATE;
   const reportCostPerUnit = args.reportCostPerUnit ?? DEFAULT_REPORT_COST_PER_UNIT;
@@ -182,10 +183,11 @@ export function computeProfit(args: {
   };
   const adByDay = byDay([...args.metaByDay, ...(args.extraAdByDay ?? [])]);
   const extraReportByDay = byDay(args.extraReportCostByDay ?? []);
+  const actualReportByDay = byDay(args.actualReportCostByDay ?? []);
   const extraAdSpend = (args.extraAdByDay ?? []).reduce((s, r) => s + (Number(r.spend) || 0), 0);
 
-  // union of dates (PortOne 결제 일 + 광고비 일 + 손으로 넣은 원가 일).
-  const allDates = new Set<string>([...portoneByDay.keys(), ...adByDay.keys(), ...extraReportByDay.keys()]);
+  // union of dates (PortOne 결제 일 + 광고비 일 + 손으로 넣은 원가 일 + 실제 AI 사용액 일).
+  const allDates = new Set<string>([...portoneByDay.keys(), ...adByDay.keys(), ...extraReportByDay.keys(), ...actualReportByDay.keys()]);
   const dailyArr: DailyProfitRow[] = [];
 
   let totalNetRevenue = 0;
@@ -203,8 +205,8 @@ export function computeProfit(args: {
     const vat = calculateVat(netRevenue);
     const revenueExVat = calculateRevenueExVat(netRevenue);
     const pgFee = po.pgFee;   // 결제수단별 요율로 이미 합산됨 (calc.ts pgFeeRateForMethod)
-    // 결제 시각별 단가 합산(calc.ts reportCostPerUnitAt) + 그날 넣은 API 결제액
-    const reportCost = po.reportCost + (extraReportByDay.get(date) || 0);
+    // 실제 AI 사용액이 있는 날은 그 값, 없으면 결제 시각별 단가 합산(calc.ts reportCostPerUnitAt). 여기에 그날 넣은 API 결제액과 서버비
+    const reportCost = (actualReportByDay.get(date) ?? po.reportCost) + (extraReportByDay.get(date) || 0);
     const cp = calculateContributionProfit(revenueExVat, pgFee, reportCost, adSpend);
     const cm = calculateContributionMargin(cp, netRevenue);
     const roas = calculateRoas(netRevenue, adSpend);
