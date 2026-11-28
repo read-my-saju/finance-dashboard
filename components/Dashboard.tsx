@@ -418,7 +418,7 @@ export default function Dashboard() {
         <Banner tone="error" title="데이터 로드 실패" body={error} />
       )}
       {metaError && (
-        <Banner tone="warn" title="광고 데이터 알림" body={metaError} />
+        <Banner tone="warn" title="데이터 알림" body={metaError} />
       )}
 
       {/* ── 1. 상단 KPI 스트립 ─────────────────────────────────────────── */}

@@ -39,6 +39,7 @@ export const NAVER_AD_COSTS: ManualCost[] = [
 export const AI_API_PAYMENTS: ManualCost[] = [
   { date: "2026-09-30", amount: 344_196, label: "9월 AI API 카드 결제 (OpenAI $205.55, Anthropic $45.45, KB 할인 차감)" },
   { date: "2026-10-31", amount: 912_669, label: "10월 Anthropic API 카드 결제 (10/4~10/7 롯데 9건, KB 5건과 10/12 취소 1건)" },
+  // 11/7~ OpenAI 는 lib/openai-costs.ts 실제 사용액으로 잡으므로 자동충전 결제액을 여기 넣지 않는다(이중 계산).
 ];
 
 // 서버비(월별 손익 엑셀 매출원가의 서버 칸과 같은 금액). 리포트 원가 칸에 더해 공헌이익에서 뺀다.

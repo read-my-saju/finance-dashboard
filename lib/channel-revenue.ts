@@ -165,8 +165,9 @@ export function buildChannelPeriod(args: {
   campaigns: CampaignRef[];
   adTags?: AdTagRef[];
   range: Range;
+  actualReportCostByDay?: Array<{ date: string; spend: number }>;  // 그날 실제 AI 사용액 — 회사 전체 합계에만
 }): ChannelPeriod {
-  const { payments, metaRows, attributions, campaigns, adTags = [], range } = args;
+  const { payments, metaRows, attributions, campaigns, adTags = [], range, actualReportCostByDay } = args;
 
   const tagged: Tagged[] = payments.map((p) => {
     const a = p.orderId ? attributions.get(p.orderId) : undefined;
@@ -222,6 +223,7 @@ export function buildChannelPeriod(args: {
     range,
     extraAdByDay: [...spreadByMonth(NAVER_AD_COSTS, range), ...(withMarketing ? marketingByDay(range) : [])],
     extraReportCostByDay: [...spreadByMonth(AI_API_PAYMENTS, range), ...spreadByMonth(SERVER_COSTS, range)],
+    actualReportCostByDay,
   }).totals;
   const total = companyTotal(false);
   const totalMk = companyTotal(true);
